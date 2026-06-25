@@ -1,154 +1,309 @@
-// Soundboard Application Core Logic
+// MPC-Style Studio Soundboard Core Engine
 
-// Lazy-initialized Audio State
+// Audio Variables
 let audioCtx = null;
 let globalGainNode = null;
 let analyserNode = null;
-let noiseBuffer = null;
-let isSynthesizerMode = false; // false = Recordings, true = Synthesizer
 
-// Sound Definitions & Configurations
-const sounds = {
-  airhorn: {
-    title: "Air Horn",
-    emoji: "📢",
-    recPath: "assets/sounds/airhorn.mp3",
-    synthDuration: 1.0, // seconds
-    audioElement: null,
-    mediaSource: null,
-    gainNode: null,
-    activeNodes: null,
-    playTimeout: null,
-    loop: false,
-    isPlaying: false
-  },
-  fart: {
-    title: "Fart Sounds",
-    emoji: "💨",
-    recPath: "assets/sounds/fart.mp3",
-    synthDuration: 0.5,
-    audioElement: null,
-    mediaSource: null,
-    gainNode: null,
-    activeNodes: null,
-    playTimeout: null,
-    loop: false,
-    isPlaying: false
-  },
-  laughter: {
-    title: "Audience Laughter",
-    emoji: "😆",
-    recPath: "assets/sounds/laughter.mp3",
-    synthDuration: 1.6,
-    audioElement: null,
-    mediaSource: null,
-    gainNode: null,
-    activeNodes: null,
-    playTimeout: null,
-    loop: false,
-    isPlaying: false
-  },
-  applause: {
-    title: "Audience Applause",
-    emoji: "👏",
-    recPath: "assets/sounds/applause.mp3",
-    synthDuration: 2.5,
-    audioElement: null,
-    mediaSource: null,
-    gainNode: null,
-    activeNodes: null,
-    playTimeout: null,
-    loop: false,
-    isPlaying: false
-  }
-};
+// IndexedDB Configuration
+const DB_NAME = "SonicDeckDB";
+const STORE_NAME = "custom_pads";
 
-// Hotkey mappings (1-4 and Q-R)
-const keyMap = {
-  "1": "airhorn",
-  "q": "airhorn",
-  "2": "fart",
-  "w": "fart",
-  "3": "laughter",
-  "e": "laughter",
-  "4": "applause",
-  "r": "applause"
-};
-
-// Canvas Visualizer Configuration
-let canvas = null;
-let canvasCtx = null;
+// State Management
+let currentBank = "A"; // "A", "B", "C"
 let visualizerMode = "wave"; // "wave" or "freq"
 let animationFrameId = null;
+let editingPadIndex = null; // Track which pad is being configured in the modal
+const urlCache = {}; // Global cache for fetched AudioBuffers to prevent duplicate network calls
 
-// Initialize the Web Audio API Context and Nodes
+// Audio Trimmer State Management
+let trimmerFile = null;
+let trimmerAudioBuffer = null;
+let trimmerStartSec = 0;
+let trimmerPreviewSource = null;
+let trimmerPreviewStartTime = null;
+let trimmerTargetPadIndex = null;
+
+// Hotkey mapping for 4x4 grid (0-15)
+const keyMap = {
+  "1": 0, "2": 1, "3": 2, "4": 3,
+  "q": 4, "w": 5, "e": 6, "r": 7,
+  "a": 8, "s": 9, "d": 10, "f": 11,
+  "z": 12, "x": 13, "c": 14, "v": 15
+};
+
+// 12 Preset Sounds definitions (Bank A)
+const PRESETS = [
+  { id: "fart", title: "Fart", recPath: "assets/sounds/fart.mp3", duration: 0.5 },
+  { id: "applause", title: "Applause", recPath: "assets/sounds/applause.mp3", duration: 2.5 },
+  { id: "laughter", title: "Laughter", recPath: "assets/sounds/laughter.mp3", duration: 1.6 },
+  { id: "laser", title: "Laser Gun", duration: 0.3 },
+  { id: "dundun", title: "Dun Dun", duration: 1.2 },
+  { id: "crickets", title: "Crickets", duration: 2.2 },
+  { id: "stinks", title: "Stinks Quote", duration: 2.0 },
+  { id: "honk", title: "Horn Honk", duration: 0.4 },
+  { id: "snore", title: "Snoring", duration: 2.5 },
+  { id: "cash", title: "Cash Register", duration: 0.6 },
+  { id: "cleanup", title: "Clean Up PA", duration: 2.2 },
+  { id: "airhorn", title: "Air Horn", recPath: "assets/sounds/airhorn.mp3", duration: 1.0 }
+];
+
+// Curated GitHub/Web-Hosted Sound Library (Discord, Retro Gaming, and Memes)
+const WEB_SOUNDS = [
+  // Discord Notification Sounds
+  { title: "Discord Join", url: "https://raw.githubusercontent.com/lefuturiste/discord-sounds/master/incoming-user.mp3", category: "discord" },
+  { title: "Discord Leave", url: "https://raw.githubusercontent.com/lefuturiste/discord-sounds/master/deconnected.mp3", category: "discord" },
+  { title: "Discord Ringtone", url: "https://raw.githubusercontent.com/lefuturiste/discord-sounds/master/incoming-ring.mp3", category: "discord" },
+  { title: "Discord Mute", url: "https://raw.githubusercontent.com/lefuturiste/discord-sounds/master/muted.mp3", category: "discord" },
+  { title: "Discord Deafen", url: "https://raw.githubusercontent.com/lefuturiste/discord-sounds/master/deaf.mp3", category: "discord" },
+  { title: "Discord Undeafen", url: "https://raw.githubusercontent.com/lefuturiste/discord-sounds/master/undeaf.mp3", category: "discord" },
+  { title: "Discord Unmute", url: "https://raw.githubusercontent.com/lefuturiste/discord-sounds/master/unmuted.mp3", category: "discord" },
+  { title: "Discord Ringing", url: "https://raw.githubusercontent.com/lefuturiste/discord-sounds/master/call-ringing.mp3", category: "discord" },
+  { title: "Discord Outgoing", url: "https://raw.githubusercontent.com/lefuturiste/discord-sounds/master/outgoing-ring.mp3", category: "discord" },
+
+  // Jitsi Meet Reactions
+  { title: "Wow Surprise", url: "https://raw.githubusercontent.com/jitsi/jitsi-meet/master/sounds/reactions-surprise.mp3", category: "reactions" },
+  { title: "Thumbs Up", url: "https://raw.githubusercontent.com/jitsi/jitsi-meet/master/sounds/reactions-thumbs-up.mp3", category: "reactions" },
+  { title: "Crowd Laughter", url: "https://raw.githubusercontent.com/jitsi/jitsi-meet/master/sounds/reactions-laughter.mp3", category: "reactions" },
+  { title: "Crowd Applause", url: "https://raw.githubusercontent.com/jitsi/jitsi-meet/master/sounds/reactions-applause.mp3", category: "reactions" },
+
+  // SoundManager2 Retro UI Chimes & Clicks
+  { title: "Click Low", url: "https://raw.githubusercontent.com/scottschiller/soundmanager2/master/demo/_mp3/click-low.mp3", category: "interface" },
+  { title: "Click High", url: "https://raw.githubusercontent.com/scottschiller/soundmanager2/master/demo/_mp3/click-high.mp3", category: "interface" },
+  { title: "Retro Beep A", url: "https://raw.githubusercontent.com/scottschiller/soundmanager2/master/demo/_mp3/button-0.mp3", category: "interface" },
+  { title: "Retro Beep B", url: "https://raw.githubusercontent.com/scottschiller/soundmanager2/master/demo/_mp3/button-1.mp3", category: "interface" },
+  { title: "Retro Beep C", url: "https://raw.githubusercontent.com/scottschiller/soundmanager2/master/demo/_mp3/button-2.mp3", category: "interface" },
+  { title: "Retro Beep D", url: "https://raw.githubusercontent.com/scottschiller/soundmanager2/master/demo/_mp3/button-3.mp3", category: "interface" },
+  { title: "Retro Beep E", url: "https://raw.githubusercontent.com/scottschiller/soundmanager2/master/demo/_mp3/button-4.mp3", category: "interface" },
+  { title: "Retro Beep F", url: "https://raw.githubusercontent.com/scottschiller/soundmanager2/master/demo/_mp3/button-5.mp3", category: "interface" },
+  { title: "Retro Beep G", url: "https://raw.githubusercontent.com/scottschiller/soundmanager2/master/demo/_mp3/button-6.mp3", category: "interface" },
+  { title: "Retro Beep H", url: "https://raw.githubusercontent.com/scottschiller/soundmanager2/master/demo/_mp3/button-7.mp3", category: "interface" },
+  { title: "Retro Beep I", url: "https://raw.githubusercontent.com/scottschiller/soundmanager2/master/demo/_mp3/button-8.mp3", category: "interface" },
+
+  // SoundManager2 Drum / Instrument SFX
+  { title: "Snare Drum", url: "https://raw.githubusercontent.com/scottschiller/soundmanager2/master/demo/_mp3/snare.mp3", category: "instruments" },
+  { title: "Bass Drum", url: "https://raw.githubusercontent.com/scottschiller/soundmanager2/master/demo/_mp3/bass.mp3", category: "instruments" },
+  { title: "Closed Hat", url: "https://raw.githubusercontent.com/scottschiller/soundmanager2/master/demo/_mp3/hat-closed.mp3", category: "instruments" },
+  { title: "Open Hat", url: "https://raw.githubusercontent.com/scottschiller/soundmanager2/master/demo/_mp3/hat-open.mp3", category: "instruments" },
+  { title: "Crash Cymbal", url: "https://raw.githubusercontent.com/scottschiller/soundmanager2/master/demo/_mp3/crash.mp3", category: "instruments" },
+  { title: "Ride Cymbal", url: "https://raw.githubusercontent.com/scottschiller/soundmanager2/master/demo/_mp3/ride.mp3", category: "instruments" },
+  { title: "High Tom", url: "https://raw.githubusercontent.com/scottschiller/soundmanager2/master/demo/_mp3/tom-high.mp3", category: "instruments" },
+
+  // Extra Meme Classics
+  { title: "Fart Reverb", url: "https://raw.githubusercontent.com/ItzOnlyAnimal/AliuPlugins/main/fart.mp3", category: "memes" },
+  { title: "Original Airhorn", url: "https://raw.githubusercontent.com/hamvocke/airhorn/master/airhorn.mp3", category: "memes" }
+];
+
+// Grid Pad States (3 Banks A, B, C of 16 pads each)
+const padStates = {
+  A: Array.from({ length: 16 }, (_, i) => createInitialPad(i, "A")),
+  B: Array.from({ length: 16 }, (_, i) => createInitialPad(i, "B")),
+  C: Array.from({ length: 16 }, (_, i) => createInitialPad(i, "C"))
+};
+
+function createInitialPad(index, bank) {
+  // Bank A has 12 presets on rows 1-3 (indices 0 to 11)
+  if (bank === "A" && index < 12) {
+    const preset = PRESETS[index];
+    return {
+      presetId: preset.id,
+      title: preset.title,
+      duration: preset.duration || 1.0,
+      recPath: preset.recPath || null,
+      audioBuffer: null,
+      customFile: null,
+      url: null, // Host URL if custom web sound
+      loop: false,
+      volume: 1.0,
+      isPlaying: false,
+      gainNode: null,
+      activeSources: [],
+      playTimeout: null
+    };
+  }
+  
+  // Custom Empty Pad
+  return {
+    presetId: null,
+    title: "Empty Slot",
+    duration: 0,
+    recPath: null,
+    audioBuffer: null,
+    customFile: null,
+    url: null,
+    loop: false,
+    volume: 1.0,
+    isPlaying: false,
+    gainNode: null,
+    activeSources: [],
+    playTimeout: null
+  };
+}
+
+// ==========================================
+// IndexedDB Persistence Helpers
+// ==========================================
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, 1);
+    request.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      db.createObjectStore(STORE_NAME);
+    };
+    request.onsuccess = (e) => resolve(e.target.result);
+    request.onerror = (e) => reject(e.target.error);
+  });
+}
+
+async function savePadDataToDB(bank, index, data) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, "readwrite");
+    const store = tx.objectStore(STORE_NAME);
+    const request = store.put(data, `${bank}_${index}`);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function loadPadDataFromDB(bank, index) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, "readonly");
+    const store = tx.objectStore(STORE_NAME);
+    const request = store.get(`${bank}_${index}`);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function removePadDataFromDB(bank, index) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, "readwrite");
+    const store = tx.objectStore(STORE_NAME);
+    const request = store.delete(`${bank}_${index}`);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function clearDB() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, "readwrite");
+    const store = tx.objectStore(STORE_NAME);
+    const request = store.clear();
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function saveCustomPadSettings(bank, index, pad) {
+  try {
+    const saved = await loadPadDataFromDB(bank, index);
+    if (saved) {
+      saved.volume = pad.volume;
+      saved.loop = pad.loop;
+      await savePadDataToDB(bank, index, saved);
+    }
+  } catch (err) {
+    console.error("Failed to save pad settings to DB:", err);
+  }
+}
+
+function decodeAllLoadedCustomSounds() {
+  Object.keys(padStates).forEach(bankKey => {
+    padStates[bankKey].forEach((pad, i) => {
+      if (!pad.audioBuffer) {
+        if (pad.customFile) {
+          const fileReader = new FileReader();
+          fileReader.onload = (e) => {
+            const ab = e.target.result;
+            decodeAudioDataSafe(ab, pad.customFile.name)
+              .then((decoded) => {
+                pad.audioBuffer = decoded;
+                if (bankKey === currentBank) {
+                  updatePadDOM(i);
+                }
+              })
+              .catch((err) => {
+                console.error(`Decoding custom file failed for pad ${i} in bank ${bankKey}:`, err);
+              });
+          };
+          fileReader.readAsArrayBuffer(pad.customFile);
+        } else if (pad.url) {
+          fetchAndDecodeSound(pad, pad.url).then(() => {
+            if (bankKey === currentBank) {
+              updatePadDOM(i);
+            }
+          }).catch(() => {});
+        }
+      }
+    });
+  });
+}
+
+// ==========================================
+// Audio Context Initialization & Loading
+// ==========================================
+
 function initAudio() {
   if (audioCtx) return;
 
   const AudioContextClass = window.AudioContext || window.webkitAudioContext;
   audioCtx = new AudioContextClass();
 
-  // Create nodes
+  // Nodes setup
   globalGainNode = audioCtx.createGain();
-  globalGainNode.gain.value = parseFloat(document.getElementById("global-volume").value);
+  globalGainNode.gain.setValueAtTime(parseFloat(document.getElementById("global-volume").value), audioCtx.currentTime);
 
   analyserNode = audioCtx.createAnalyser();
   analyserNode.fftSize = 256;
 
-  // Connect chains
   globalGainNode.connect(analyserNode);
   analyserNode.connect(audioCtx.destination);
 
-  // Initialize individual gains and audio elements for pre-recordings
-  Object.keys(sounds).forEach(id => {
-    const s = sounds[id];
-    
-    // Per-sound gain node
-    s.gainNode = audioCtx.createGain();
-    s.gainNode.gain.value = parseFloat(document.getElementById(`vol-${id}`).value);
-    s.gainNode.connect(globalGainNode);
-
-    // Audio Element
-    const audio = new Audio();
-    audio.src = s.recPath;
-    audio.preload = "auto";
-    audio.crossOrigin = "anonymous";
-    s.audioElement = audio;
-
-    // Connect audio element source
-    s.mediaSource = audioCtx.createMediaElementSource(audio);
-    s.mediaSource.connect(s.gainNode);
-
-    // Recording ended event listener
-    audio.addEventListener("ended", () => {
-      if (!s.loop) {
-        setCardUIState(id, false);
-        s.isPlaying = false;
-      }
+  // Initialize individual gains for all pads
+  Object.keys(padStates).forEach(bankKey => {
+    padStates[bankKey].forEach((pad) => {
+      setupPadGainNode(pad);
     });
   });
 
-  // Start Visualizer render loop
+  // Pre-load default preset audio files into AudioBuffers
+  loadPresetFiles();
+
+  // Decode all custom files and web files restored from DB
+  decodeAllLoadedCustomSounds();
+
+  // Start Visualizer
   startVisualizer();
 }
 
-// Generate circular white noise buffer for synthesizing applause/farts
-function getNoiseBuffer() {
-  if (noiseBuffer) return noiseBuffer;
-
-  const sampleRate = audioCtx.sampleRate;
-  const bufferSize = 2 * sampleRate; // 2 seconds
-  noiseBuffer = audioCtx.createBuffer(1, bufferSize, sampleRate);
-  const data = noiseBuffer.getChannelData(0);
-
-  for (let i = 0; i < bufferSize; i++) {
-    data[i] = Math.random() * 2 - 1;
-  }
-
-  return noiseBuffer;
+function setupPadGainNode(pad) {
+  if (pad.gainNode) return;
+  pad.gainNode = audioCtx.createGain();
+  pad.gainNode.gain.setValueAtTime(pad.volume, audioCtx.currentTime);
+  pad.gainNode.connect(globalGainNode);
 }
 
-// Ensure Audio Context is resumed (browsers require user interaction)
+async function loadPresetFiles() {
+  padStates.A.forEach(async (pad) => {
+    if (pad.recPath) {
+      try {
+        const response = await fetch(pad.recPath);
+        const arrayBuffer = await response.arrayBuffer();
+        const decodedBuffer = await decodeAudioDataSafe(arrayBuffer, pad.recPath);
+        pad.audioBuffer = decodedBuffer;
+      } catch (e) {
+        console.warn(`Could not load pre-recorded asset for ${pad.presetId}, fallback synthesis will be used.`);
+      }
+    }
+  });
+}
+
 async function resumeAudioContext() {
   initAudio();
   if (audioCtx && audioCtx.state === "suspended") {
@@ -160,437 +315,1178 @@ async function resumeAudioContext() {
 // Web Audio API Synthesizers
 // ==========================================
 
-// 1. Air Horn Synthesizer
-function playAirHornSynth(s) {
+// White Noise generator node helper
+let whiteNoiseBuffer = null;
+function getNoiseBuffer() {
+  if (whiteNoiseBuffer) return whiteNoiseBuffer;
+  const sampleRate = audioCtx.sampleRate;
+  const bufferSize = 2 * sampleRate;
+  whiteNoiseBuffer = audioCtx.createBuffer(1, bufferSize, sampleRate);
+  const data = whiteNoiseBuffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) {
+    data[i] = Math.random() * 2 - 1;
+  }
+  return whiteNoiseBuffer;
+}
+
+// Synthesizer Route Router
+function playSynthSound(id, dest, duration, pad) {
   const ctx = audioCtx;
-  const dest = s.gainNode;
   const oscs = [];
+  const nodes = [];
 
-  // Harmonics frequencies to simulate air pressure resonance
-  const baseFreqs = [220, 222, 330, 440, 660, 880];
-  const gains = [1.0, 0.8, 0.7, 0.5, 0.3, 0.1];
+  if (id === "fart") {
+    // Fart Synth
+    const osc1 = ctx.createOscillator();
+    osc1.type = "sawtooth";
+    osc1.frequency.setValueAtTime(90, ctx.currentTime);
+    osc1.frequency.exponentialRampToValueAtTime(32, ctx.currentTime + duration * 0.9);
 
-  const oscGain = ctx.createGain();
-  oscGain.gain.setValueAtTime(0, ctx.currentTime);
-  oscGain.gain.linearRampToValueAtTime(0.7, ctx.currentTime + 0.015); // Instant slap attack
-  
-  // Bandpass filter to compress frequencies and focus tone
-  const filter = ctx.createBiquadFilter();
-  filter.type = "bandpass";
-  filter.frequency.setValueAtTime(750, ctx.currentTime);
-  filter.Q.setValueAtTime(1.8, ctx.currentTime);
+    const osc2 = ctx.createOscillator();
+    osc2.type = "triangle";
+    osc2.frequency.setValueAtTime(80, ctx.currentTime);
+    osc2.frequency.exponentialRampToValueAtTime(28, ctx.currentTime + duration * 0.8);
 
-  baseFreqs.forEach((freq, idx) => {
+    const lfo = ctx.createOscillator();
+    lfo.type = "sawtooth";
+    lfo.frequency.setValueAtTime(23, ctx.currentTime);
+
+    const lfoGain = ctx.createGain();
+    lfoGain.gain.setValueAtTime(0.45, ctx.currentTime);
+
+    const flutterNode = ctx.createGain();
+    flutterNode.gain.setValueAtTime(0.5, ctx.currentTime);
+
+    lfo.connect(lfoGain);
+    lfoGain.connect(flutterNode.gain);
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.setValueAtTime(250, ctx.currentTime);
+    filter.frequency.exponentialRampToValueAtTime(80, ctx.currentTime + duration);
+
+    osc1.connect(flutterNode);
+    osc2.connect(flutterNode);
+    flutterNode.connect(filter);
+    filter.connect(dest);
+
+    lfo.start();
+    osc1.start();
+    osc2.start();
+
+    oscs.push(osc1, osc2, lfo);
+    nodes.push(lfoGain, flutterNode, filter);
+
+  } else if (id === "applause") {
+    // Applause Synth (Background Noise + clappers)
+    const noise = ctx.createBufferSource();
+    noise.buffer = getNoiseBuffer();
+    noise.loop = true;
+
+    const noiseFilter = ctx.createBiquadFilter();
+    noiseFilter.type = "bandpass";
+    noiseFilter.frequency.setValueAtTime(1200, ctx.currentTime);
+    noiseFilter.Q.setValueAtTime(0.8, ctx.currentTime);
+
+    const noiseGain = ctx.createGain();
+    noiseGain.gain.setValueAtTime(0, ctx.currentTime);
+    noiseGain.gain.linearRampToValueAtTime(0.18, ctx.currentTime + 0.3);
+    noiseGain.gain.exponentialRampToValueAtTime(0.005, ctx.currentTime + duration);
+
+    noise.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(dest);
+    noise.start();
+
+    oscs.push(noise);
+    nodes.push(noiseFilter, noiseGain);
+
+    const clappers = [];
+    const numClappers = 8;
+    for (let i = 0; i < numClappers; i++) {
+      const interval = setInterval(() => {
+        if (!pad.isPlaying) return;
+        const clap = ctx.createBufferSource();
+        clap.buffer = getNoiseBuffer();
+
+        const clapFilt = ctx.createBiquadFilter();
+        clapFilt.type = "bandpass";
+        clapFilt.frequency.setValueAtTime(950 + Math.random() * 900, ctx.currentTime);
+        clapFilt.Q.setValueAtTime(2.2, ctx.currentTime);
+
+        const clapGain = ctx.createGain();
+        clapGain.gain.setValueAtTime(0.45 + Math.random() * 0.4, ctx.currentTime);
+        clapGain.gain.exponentialRampToValueAtTime(0.005, ctx.currentTime + 0.02 + Math.random() * 0.035);
+
+        clap.connect(clapFilt);
+        clapFilt.connect(clapGain);
+        clapGain.connect(dest);
+        clap.start();
+
+        setTimeout(() => {
+          clap.disconnect();
+          clapFilt.disconnect();
+          clapGain.disconnect();
+        }, 100);
+      }, 90 + Math.random() * 100);
+      clappers.push(interval);
+    }
+    pad.clapperIntervals = clappers;
+
+  } else if (id === "laughter") {
+    // Laughter Synth (3 chuckling voices)
+    const basePitches = [160, 210, 245];
+    const modRates = [5.6, 6.3, 4.8];
+    const startOffsets = [0, 0.08, 0.15];
+
+    basePitches.forEach((pitch, i) => {
+      const osc = ctx.createOscillator();
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(pitch, ctx.currentTime + startOffsets[i]);
+
+      const f1 = ctx.createBiquadFilter();
+      f1.type = "bandpass";
+      f1.frequency.setValueAtTime(800, ctx.currentTime);
+      f1.Q.setValueAtTime(3.0, ctx.currentTime);
+
+      const f2 = ctx.createBiquadFilter();
+      f2.type = "bandpass";
+      f2.frequency.setValueAtTime(1250, ctx.currentTime);
+      f2.Q.setValueAtTime(3.0, ctx.currentTime);
+
+      const mixer = ctx.createGain();
+      mixer.gain.setValueAtTime(0.35, ctx.currentTime);
+
+      osc.connect(f1);
+      osc.connect(f2);
+      f1.connect(mixer);
+      f2.connect(mixer);
+
+      const lfo = ctx.createOscillator();
+      lfo.type = "sine";
+      lfo.frequency.setValueAtTime(modRates[i], ctx.currentTime + startOffsets[i]);
+
+      const lfoVol = ctx.createGain();
+      lfoVol.gain.setValueAtTime(0.35, ctx.currentTime);
+
+      const pitchMod = ctx.createGain();
+      pitchMod.gain.setValueAtTime(30, ctx.currentTime);
+
+      lfo.connect(lfoVol);
+      lfo.connect(pitchMod);
+      pitchMod.connect(osc.frequency);
+
+      const volMod = ctx.createGain();
+      volMod.gain.setValueAtTime(0.55, ctx.currentTime);
+      lfoVol.connect(volMod.gain);
+
+      mixer.connect(volMod);
+
+      const env = ctx.createGain();
+      env.gain.setValueAtTime(0, ctx.currentTime);
+      env.gain.linearRampToValueAtTime(0.7, ctx.currentTime + startOffsets[i] + 0.1);
+      env.gain.exponentialRampToValueAtTime(0.005, ctx.currentTime + duration);
+
+      volMod.connect(env);
+      env.connect(dest);
+
+      setTimeout(() => {
+        if (pad.isPlaying && ctx.state === "running") {
+          try {
+            osc.start();
+            lfo.start();
+          } catch(e) {}
+        }
+      }, startOffsets[i] * 1000);
+
+      oscs.push(osc, lfo);
+      nodes.push(f1, f2, mixer, lfoVol, pitchMod, volMod, env);
+    });
+
+  } else if (id === "laser") {
+    // Laser Gun (Arcade pitch sweep)
     const osc = ctx.createOscillator();
     osc.type = "sawtooth";
-    osc.frequency.setValueAtTime(freq, ctx.currentTime);
-    
-    // Natural slight pitch drop as air pressure releases
-    osc.frequency.exponentialRampToValueAtTime(freq * 0.94, ctx.currentTime + s.synthDuration);
+    osc.frequency.setValueAtTime(1600, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + duration);
 
-    const indGain = ctx.createGain();
-    indGain.gain.setValueAtTime(gains[idx], ctx.currentTime);
+    const filter = ctx.createBiquadFilter();
+    filter.type = "highpass";
+    filter.frequency.setValueAtTime(250, ctx.currentTime);
 
-    osc.connect(indGain);
-    indGain.connect(oscGain);
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(0.8, ctx.currentTime);
+    env.gain.exponentialRampToValueAtTime(0.005, ctx.currentTime + duration);
+
+    osc.connect(filter);
+    filter.connect(env);
+    env.connect(dest);
+
     osc.start();
     oscs.push(osc);
-  });
+    nodes.push(filter, env);
 
-  oscGain.connect(filter);
-  filter.connect(dest);
+  } else if (id === "dundun") {
+    // Law & Order "Dun Dun"
+    const osc1 = ctx.createOscillator();
+    osc1.type = "sawtooth";
+    osc1.frequency.setValueAtTime(55, ctx.currentTime);
+    
+    const filter1 = ctx.createBiquadFilter();
+    filter1.type = "lowpass";
+    filter1.frequency.setValueAtTime(150, ctx.currentTime);
+    
+    const env1 = ctx.createGain();
+    env1.gain.setValueAtTime(0.8, ctx.currentTime);
+    env1.gain.exponentialRampToValueAtTime(0.005, ctx.currentTime + 0.45);
 
-  s.activeNodes = {
-    oscs,
-    gain: oscGain,
-    filter
-  };
-}
+    osc1.connect(filter1);
+    filter1.connect(env1);
+    env1.connect(dest);
 
-// 2. Fart Synthesizer (Sawtooth sweeping down + Low-frequency flutter)
-function playFartSynth(s) {
-  const ctx = audioCtx;
-  const dest = s.gainNode;
+    const osc2 = ctx.createOscillator();
+    osc2.type = "sawtooth";
+    osc2.frequency.setValueAtTime(48, ctx.currentTime + 0.35);
 
-  // Base sweep oscillator
-  const osc = ctx.createOscillator();
-  osc.type = "sawtooth";
-  osc.frequency.setValueAtTime(95, ctx.currentTime);
-  osc.frequency.exponentialRampToValueAtTime(32, ctx.currentTime + s.synthDuration * 0.9);
+    const filter2 = ctx.createBiquadFilter();
+    filter2.type = "lowpass";
+    filter2.frequency.setValueAtTime(180, ctx.currentTime);
 
-  // Rumble triangle oscillator
-  const osc2 = ctx.createOscillator();
-  osc2.type = "triangle";
-  osc2.frequency.setValueAtTime(80, ctx.currentTime);
-  osc2.frequency.exponentialRampToValueAtTime(28, ctx.currentTime + s.synthDuration * 0.8);
+    const env2 = ctx.createGain();
+    env2.gain.setValueAtTime(0, ctx.currentTime);
+    env2.gain.setValueAtTime(0.8, ctx.currentTime + 0.35);
+    env2.gain.exponentialRampToValueAtTime(0.005, ctx.currentTime + duration);
 
-  // Flutter LFO to modulate gain (simulating skin vibration)
-  const lfo = ctx.createOscillator();
-  lfo.type = "sawtooth";
-  lfo.frequency.setValueAtTime(23, ctx.currentTime); // 23Hz flapping speed
+    osc2.connect(filter2);
+    filter2.connect(env2);
+    env2.connect(dest);
 
-  const lfoGain = ctx.createGain();
-  lfoGain.gain.setValueAtTime(0.42, ctx.currentTime); // Modulation depth
+    [0, 0.35].forEach(delay => {
+      const noise = ctx.createBufferSource();
+      noise.buffer = getNoiseBuffer();
 
-  const flutterNode = ctx.createGain();
-  flutterNode.gain.setValueAtTime(0.5, ctx.currentTime);
+      const noiseFilt = ctx.createBiquadFilter();
+      noiseFilt.type = "bandpass";
+      noiseFilt.frequency.setValueAtTime(1100, ctx.currentTime);
+      noiseFilt.Q.setValueAtTime(2.0, ctx.currentTime);
 
-  lfo.connect(lfoGain);
-  lfoGain.connect(flutterNode.gain);
+      const noiseGain = ctx.createGain();
+      noiseGain.gain.setValueAtTime(0, ctx.currentTime);
+      noiseGain.gain.setValueAtTime(0.4, ctx.currentTime + delay);
+      noiseGain.gain.exponentialRampToValueAtTime(0.005, ctx.currentTime + delay + 0.08);
 
-  // Filter out harsh highs for muddy bass farts
-  const filter = ctx.createBiquadFilter();
-  filter.type = "lowpass";
-  filter.frequency.setValueAtTime(260, ctx.currentTime);
-  filter.frequency.exponentialRampToValueAtTime(80, ctx.currentTime + s.synthDuration);
+      noise.connect(noiseFilt);
+      noiseFilt.connect(noiseGain);
+      noiseGain.connect(dest);
 
-  // White noise element for air leakage / turbulence
-  const noise = ctx.createBufferSource();
-  noise.buffer = getNoiseBuffer();
-  noise.loop = true;
+      setTimeout(() => {
+        if (pad.isPlaying && ctx.state === "running") {
+          try { noise.start(); } catch(e) {}
+        }
+      }, delay * 1000);
 
-  const noiseFilter = ctx.createBiquadFilter();
-  noiseFilter.type = "bandpass";
-  noiseFilter.frequency.setValueAtTime(160, ctx.currentTime);
-  noiseFilter.Q.setValueAtTime(3.0, ctx.currentTime);
+      oscs.push(noise);
+      nodes.push(noiseFilt, noiseGain);
+    });
 
-  const noiseGain = ctx.createGain();
-  noiseGain.gain.setValueAtTime(0.18, ctx.currentTime);
-  noiseGain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + s.synthDuration * 0.8);
-
-  // Connect chains
-  osc.connect(flutterNode);
-  osc2.connect(flutterNode);
-  flutterNode.connect(filter);
-
-  noise.connect(noiseFilter);
-  noiseFilter.connect(noiseGain);
-
-  const outputGain = ctx.createGain();
-  outputGain.gain.setValueAtTime(1, ctx.currentTime);
-  outputGain.gain.exponentialRampToValueAtTime(0.005, ctx.currentTime + s.synthDuration);
-
-  filter.connect(outputGain);
-  noiseGain.connect(outputGain);
-  outputGain.connect(dest);
-
-  // Start synths
-  lfo.start();
-  osc.start();
-  osc2.start();
-  noise.start();
-
-  s.activeNodes = {
-    oscs: [osc, osc2, lfo, noise],
-    nodes: [lfoGain, flutterNode, filter, noiseFilter, noiseGain, outputGain]
-  };
-}
-
-// 3. Laughter Synthesizer (Vocal formants + pitch/volume chuckle modulation)
-function playLaughterSynth(s) {
-  const ctx = audioCtx;
-  const dest = s.gainNode;
-  const voices = [];
-  
-  // Create 3 asynchronous chuckling voices
-  const basePitches = [165, 210, 245];
-  const modRates = [5.6, 6.3, 4.8];
-  const startOffsets = [0, 0.08, 0.15];
-
-  basePitches.forEach((pitch, i) => {
-    // Vocal source (sawtooth)
-    const osc = ctx.createOscillator();
-    osc.type = "sawtooth";
-    osc.frequency.setValueAtTime(pitch, ctx.currentTime + startOffsets[i]);
-
-    // Vocal Formant parallel filters for "ha" vowel (F1 ≈ 800Hz, F2 ≈ 1200Hz)
-    const f1 = ctx.createBiquadFilter();
-    f1.type = "bandpass";
-    f1.frequency.setValueAtTime(800, ctx.currentTime + startOffsets[i]);
-    f1.Q.setValueAtTime(3.0, ctx.currentTime);
-
-    const f2 = ctx.createBiquadFilter();
-    f2.type = "bandpass";
-    f2.frequency.setValueAtTime(1250, ctx.currentTime + startOffsets[i]);
-    f2.Q.setValueAtTime(3.0, ctx.currentTime);
-
-    const mixer = ctx.createGain();
-    mixer.gain.setValueAtTime(0.35, ctx.currentTime);
-
-    osc.connect(f1);
-    osc.connect(f2);
-    f1.connect(mixer);
-    f2.connect(mixer);
-
-    // Laugh cadence LFO (modulates pitch and volume at 5Hz to chuckle)
-    const lfo = ctx.createOscillator();
-    lfo.type = "sine";
-    lfo.frequency.setValueAtTime(modRates[i], ctx.currentTime + startOffsets[i]);
-
-    const lfoVolumeGain = ctx.createGain();
-    lfoVolumeGain.gain.setValueAtTime(0.35, ctx.currentTime);
-
-    const pitchModGain = ctx.createGain();
-    pitchModGain.gain.setValueAtTime(30, ctx.currentTime); // Pitch sweep range
-
-    lfo.connect(lfoVolumeGain);
-    lfo.connect(pitchModGain);
-    pitchModGain.connect(osc.frequency);
-
-    const volumeModNode = ctx.createGain();
-    volumeModNode.gain.setValueAtTime(0.55, ctx.currentTime);
-    lfoVolumeGain.connect(volumeModNode.gain);
-
-    mixer.connect(volumeModNode);
-
-    // Global envelope for voice decay
-    const voiceEnvelope = ctx.createGain();
-    voiceEnvelope.gain.setValueAtTime(0, ctx.currentTime);
-    voiceEnvelope.gain.linearRampToValueAtTime(0.8, ctx.currentTime + startOffsets[i] + 0.1);
-    voiceEnvelope.gain.exponentialRampToValueAtTime(0.005, ctx.currentTime + s.synthDuration);
-
-    volumeModNode.connect(voiceEnvelope);
-    voiceEnvelope.connect(dest);
-
-    // Start offset delays
+    osc1.start();
     setTimeout(() => {
-      if (s.isPlaying && ctx.state === "running") {
+      if (pad.isPlaying && ctx.state === "running") {
+        try { osc2.start(); } catch(e) {}
+      }
+    }, 350);
+
+    oscs.push(osc1, osc2);
+    nodes.push(filter1, env1, filter2, env2);
+
+  } else if (id === "crickets") {
+    // Crickets Chirp
+    const chirpDuration = 0.045;
+    const chirperInterval = setInterval(() => {
+      if (!pad.isPlaying) return;
+
+      for (let idx = 0; idx < 3; idx++) {
+        const timeDelay = idx * 0.06;
+        
+        const osc = ctx.createOscillator();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(3900 + Math.random() * 150, ctx.currentTime + timeDelay);
+
+        const env = ctx.createGain();
+        env.gain.setValueAtTime(0, ctx.currentTime);
+        env.gain.setValueAtTime(0.3, ctx.currentTime + timeDelay);
+        env.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + timeDelay + chirpDuration);
+
+        osc.connect(env);
+        env.connect(dest);
+        
         try {
-          osc.start();
-          lfo.start();
+          osc.start(ctx.currentTime + timeDelay);
+          osc.stop(ctx.currentTime + timeDelay + 0.1);
         } catch(e) {}
       }
-    }, startOffsets[i] * 1000);
+    }, 450);
 
-    voices.push({
-      osc, lfo,
-      nodes: [f1, f2, mixer, lfoVolumeGain, pitchModGain, volumeModNode, voiceEnvelope]
-    });
-  });
+    pad.cricketsInterval = chirperInterval;
 
-  s.activeNodes = { voices };
-}
-
-// 4. Applause (Crowd) Synthesizer (Stochastic impulses + noise backdrop)
-function playApplauseSynth(s) {
-  const ctx = audioCtx;
-  const dest = s.gainNode;
-
-  // Backdrop crowd ambient noise
-  const bgNoise = ctx.createBufferSource();
-  bgNoise.buffer = getNoiseBuffer();
-  bgNoise.loop = true;
-
-  const bgFilter = ctx.createBiquadFilter();
-  bgFilter.type = "bandpass";
-  bgFilter.frequency.setValueAtTime(1200, ctx.currentTime);
-  bgFilter.Q.setValueAtTime(0.8, ctx.currentTime);
-
-  const bgGain = ctx.createGain();
-  bgGain.gain.setValueAtTime(0, ctx.currentTime);
-  bgGain.gain.linearRampToValueAtTime(0.18, ctx.currentTime + 0.3); // Smooth fade in
-  bgGain.gain.exponentialRampToValueAtTime(0.005, ctx.currentTime + s.synthDuration);
-
-  bgNoise.connect(bgFilter);
-  bgFilter.connect(bgGain);
-  bgGain.connect(dest);
-  bgNoise.start();
-
-  // Spawning 8 stochastically timed clap triggers (discrete clapping hands)
-  const clappers = [];
-  const numClappers = 8;
-
-  for (let i = 0; i < numClappers; i++) {
-    const intervalId = setInterval(() => {
-      if (!s.isPlaying) return;
-
-      const clapSource = ctx.createBufferSource();
-      clapSource.buffer = getNoiseBuffer();
-
-      const clapFilter = ctx.createBiquadFilter();
-      clapFilter.type = "bandpass";
-      clapFilter.frequency.setValueAtTime(950 + Math.random() * 900, ctx.currentTime);
-      clapFilter.Q.setValueAtTime(2.2, ctx.currentTime);
-
-      const clapGain = ctx.createGain();
-      clapGain.gain.setValueAtTime(0.45 + Math.random() * 0.4, ctx.currentTime);
-      // Very sharp impulse decay
-      clapGain.gain.exponentialRampToValueAtTime(0.005, ctx.currentTime + 0.02 + Math.random() * 0.035);
-
-      clapSource.connect(clapFilter);
-      clapFilter.connect(clapGain);
-      clapGain.connect(dest);
+  } else if (id === "stinks") {
+    // SpongeBob quote: "Oh brother, this guy stinks!"
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      const text = "Oh brother, this guy stinks!";
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 1.15;
+      utterance.pitch = 1.35;
       
-      clapSource.start();
+      const voices = window.speechSynthesis.getVoices();
+      if (voices.length > 0) {
+        const engVoice = voices.find(v => v.lang.includes("en-US") || v.lang.includes("en-GB"));
+        if (engVoice) utterance.voice = engVoice;
+      }
+      
+      window.speechSynthesis.speak(utterance);
+    }
 
-      // Cleanup single clap nodes
+  } else if (id === "honk") {
+    // Car Horn Honk
+    [0, 0.16].forEach(delay => {
+      const osc1 = ctx.createOscillator();
+      osc1.type = "sawtooth";
+      osc1.frequency.setValueAtTime(375, ctx.currentTime + delay);
+
+      const osc2 = ctx.createOscillator();
+      osc2.type = "triangle";
+      osc2.frequency.setValueAtTime(435, ctx.currentTime + delay);
+
+      const filter = ctx.createBiquadFilter();
+      filter.type = "bandpass";
+      filter.frequency.setValueAtTime(700, ctx.currentTime);
+      filter.Q.setValueAtTime(1.0, ctx.currentTime);
+
+      const env = ctx.createGain();
+      env.gain.setValueAtTime(0, ctx.currentTime);
+      env.gain.setValueAtTime(0.65, ctx.currentTime + delay);
+      env.gain.linearRampToValueAtTime(0.5, ctx.currentTime + delay + 0.02);
+      env.gain.exponentialRampToValueAtTime(0.005, ctx.currentTime + delay + 0.12);
+
+      osc1.connect(filter);
+      osc2.connect(filter);
+      filter.connect(env);
+      env.connect(dest);
+
       setTimeout(() => {
-        clapSource.disconnect();
-        clapFilter.disconnect();
-        clapGain.disconnect();
-      }, 100);
+        if (pad.isPlaying && ctx.state === "running") {
+          try {
+            osc1.start();
+            osc2.start();
+          } catch(e) {}
+        }
+      }, delay * 1000);
 
-    }, 85 + Math.random() * 105); // randomized clapping rate per hand
+      oscs.push(osc1, osc2);
+      nodes.push(filter, env);
+    });
 
-    clappers.push(intervalId);
+  } else if (id === "snore") {
+    // Snoring
+    const snoreNoise = ctx.createBufferSource();
+    snoreNoise.buffer = getNoiseBuffer();
+    snoreNoise.loop = true;
+
+    const snoreFilter = ctx.createBiquadFilter();
+    snoreFilter.type = "bandpass";
+    snoreFilter.frequency.setValueAtTime(160, ctx.currentTime);
+    snoreFilter.Q.setValueAtTime(2.5, ctx.currentTime);
+    snoreFilter.frequency.linearRampToValueAtTime(240, ctx.currentTime + 0.7);
+    snoreFilter.frequency.linearRampToValueAtTime(160, ctx.currentTime + 1.2);
+
+    const snoreLfo = ctx.createOscillator();
+    snoreLfo.type = "sine";
+    snoreLfo.frequency.setValueAtTime(12, ctx.currentTime);
+
+    const snoreLfoGain = ctx.createGain();
+    snoreLfoGain.gain.setValueAtTime(0.35, ctx.currentTime);
+
+    const snoreFlutter = ctx.createGain();
+    snoreFlutter.gain.setValueAtTime(0.4, ctx.currentTime);
+    snoreLfo.connect(snoreLfoGain);
+    snoreLfoGain.connect(snoreFlutter.gain);
+
+    const snoreGain = ctx.createGain();
+    snoreGain.gain.setValueAtTime(0, ctx.currentTime);
+    snoreGain.gain.linearRampToValueAtTime(0.4, ctx.currentTime + 0.5);
+    snoreGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.2);
+
+    snoreNoise.connect(snoreFilter);
+    snoreFilter.connect(snoreFlutter);
+    snoreFlutter.connect(snoreGain);
+    snoreGain.connect(dest);
+
+    snoreNoise.start();
+    snoreLfo.start();
+
+    const sighNoise = ctx.createBufferSource();
+    sighNoise.buffer = getNoiseBuffer();
+    sighNoise.loop = true;
+
+    const sighFilter = ctx.createBiquadFilter();
+    sighFilter.type = "lowpass";
+    sighFilter.frequency.setValueAtTime(220, ctx.currentTime);
+
+    const sighGain = ctx.createGain();
+    sighGain.gain.setValueAtTime(0, ctx.currentTime);
+    sighGain.gain.setValueAtTime(0.3, ctx.currentTime + 1.35);
+    sighGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+
+    sighNoise.connect(sighFilter);
+    sighFilter.connect(sighGain);
+    sighGain.connect(dest);
+
+    setTimeout(() => {
+      if (pad.isPlaying && ctx.state === "running") {
+        try { sighNoise.start(); } catch(e) {}
+      }
+    }, 1300);
+
+    oscs.push(snoreNoise, snoreLfo, sighNoise);
+    nodes.push(snoreFilter, snoreLfoGain, snoreFlutter, snoreGain, sighFilter, sighGain);
+
+  } else if (id === "cash") {
+    // Cash Register
+    const bellFrequencies = [980, 1370, 1550, 2100];
+    bellFrequencies.forEach(freq => {
+      const osc = ctx.createOscillator();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(freq, ctx.currentTime);
+
+      const env = ctx.createGain();
+      env.gain.setValueAtTime(0.2, ctx.currentTime);
+      env.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.55);
+
+      osc.connect(env);
+      env.connect(dest);
+      osc.start();
+
+      oscs.push(osc);
+      nodes.push(env);
+    });
+
+    const noise = ctx.createBufferSource();
+    noise.buffer = getNoiseBuffer();
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = "bandpass";
+    filter.frequency.setValueAtTime(1800, ctx.currentTime);
+    filter.Q.setValueAtTime(2.0, ctx.currentTime);
+
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(0, ctx.currentTime);
+    env.gain.setValueAtTime(0.35, ctx.currentTime + 0.08);
+    
+    const shakeLfo = ctx.createOscillator();
+    shakeLfo.type = "sawtooth";
+    shakeLfo.frequency.setValueAtTime(18, ctx.currentTime);
+    
+    const shakeLfoGain = ctx.createGain();
+    shakeLfoGain.gain.setValueAtTime(0.3, ctx.currentTime);
+
+    const flutter = ctx.createGain();
+    flutter.gain.setValueAtTime(0.5, ctx.currentTime);
+    shakeLfo.connect(shakeLfoGain);
+    shakeLfoGain.connect(flutter.gain);
+
+    env.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+
+    noise.connect(filter);
+    filter.connect(flutter);
+    flutter.connect(env);
+    env.connect(dest);
+
+    setTimeout(() => {
+      if (pad.isPlaying && ctx.state === "running") {
+        try {
+          noise.start();
+          shakeLfo.start();
+        } catch(e) {}
+      }
+    }, 80);
+
+    oscs.push(noise, shakeLfo);
+    nodes.push(filter, shakeLfoGain, flutter, env);
+
+  } else if (id === "cleanup") {
+    // Supermarket PA chime + speak
+    [0, 0.22].forEach((delay, index) => {
+      const osc = ctx.createOscillator();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(index === 0 ? 554.37 : 440, ctx.currentTime + delay);
+
+      const env = ctx.createGain();
+      env.gain.setValueAtTime(0, ctx.currentTime);
+      env.gain.setValueAtTime(0.35, ctx.currentTime + delay);
+      env.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + 0.6);
+
+      const d = ctx.createDelay();
+      d.delayTime.setValueAtTime(0.2, ctx.currentTime);
+      const f = ctx.createGain();
+      f.gain.setValueAtTime(0.35, ctx.currentTime);
+
+      osc.connect(env);
+      env.connect(dest);
+
+      env.connect(d);
+      d.connect(f);
+      f.connect(d);
+      d.connect(dest);
+
+      setTimeout(() => {
+        if (pad.isPlaying && ctx.state === "running") {
+          try { osc.start(); } catch(e) {}
+        }
+      }, delay * 1000);
+
+      oscs.push(osc);
+      nodes.push(env, d, f);
+    });
+
+    setTimeout(() => {
+      if (pad.isPlaying && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        const text = "Clean up on aisle three.";
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.rate = 0.85;
+        utterance.pitch = 0.95;
+        
+        const voices = window.speechSynthesis.getVoices();
+        if (voices.length > 0) {
+          const engVoice = voices.find(v => v.lang.includes("en-US") || v.lang.includes("en-GB"));
+          if (engVoice) utterance.voice = engVoice;
+        }
+        
+        window.speechSynthesis.speak(utterance);
+      }
+    }, 850);
+
+  } else if (id === "airhorn") {
+    // Air Horn
+    const baseFreqs = [220, 222, 330, 440, 660, 880];
+    const gains = [1.0, 0.8, 0.7, 0.5, 0.3, 0.1];
+
+    const oscGain = ctx.createGain();
+    oscGain.gain.setValueAtTime(0, ctx.currentTime);
+    oscGain.gain.linearRampToValueAtTime(0.65, ctx.currentTime + 0.015);
+    
+    const filter = ctx.createBiquadFilter();
+    filter.type = "bandpass";
+    filter.frequency.setValueAtTime(750, ctx.currentTime);
+    filter.Q.setValueAtTime(1.8, ctx.currentTime);
+
+    baseFreqs.forEach((freq, idx) => {
+      const osc = ctx.createOscillator();
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(freq, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(freq * 0.94, ctx.currentTime + duration);
+
+      const indGain = ctx.createGain();
+      indGain.gain.setValueAtTime(gains[idx], ctx.currentTime);
+
+      osc.connect(indGain);
+      indGain.connect(oscGain);
+      osc.start();
+      oscs.push(osc);
+    });
+
+    oscGain.connect(filter);
+    filter.connect(dest);
+
+    oscs.push(oscGain);
+    nodes.push(filter);
   }
 
-  s.activeNodes = {
-    bgNoise,
-    bgGain,
-    bgFilter,
-    clappers
-  };
+  // Save references for cleanup
+  pad.activeSources = oscs;
+  pad.activeNodes = nodes;
 }
 
-// Master trigger to synthesize a sound
-function triggerSynth(id) {
-  const s = sounds[id];
-  s.isPlaying = true;
-  setCardUIState(id, true);
-
-  if (id === "airhorn") playAirHornSynth(s);
-  else if (id === "fart") playFartSynth(s);
-  else if (id === "laughter") playLaughterSynth(s);
-  else if (id === "applause") playApplauseSynth(s);
-
-  // Schedule release/cleanup
-  s.playTimeout = setTimeout(() => {
-    if (s.loop && s.isPlaying) {
-      cleanupSynthNodes(s);
-      triggerSynth(id); // Re-loop sound
-    } else {
-      stopSound(id);
-    }
-  }, s.synthDuration * 1000);
-}
-
-// Cleanup active synthesizer nodes on stop
-function cleanupSynthNodes(s) {
-  if (!s.activeNodes) return;
-
-  // Cleanup airhorn or fart
-  if (s.activeNodes.oscs) {
-    s.activeNodes.oscs.forEach(osc => {
+// Cleanup active synth oscillators and intervals
+function cleanupSynthNodes(pad) {
+  if (pad.activeSources) {
+    pad.activeSources.forEach(osc => {
       try { osc.stop(); osc.disconnect(); } catch(e) {}
     });
+    pad.activeSources = [];
   }
-  if (s.activeNodes.gain) s.activeNodes.gain.disconnect();
-  if (s.activeNodes.filter) s.activeNodes.filter.disconnect();
-  if (s.activeNodes.nodes) {
-    s.activeNodes.nodes.forEach(node => {
+  if (pad.activeNodes) {
+    pad.activeNodes.forEach(node => {
       try { node.disconnect(); } catch(e) {}
     });
+    pad.activeNodes = [];
   }
-
-  // Cleanup laughter voices
-  if (s.activeNodes.voices) {
-    s.activeNodes.voices.forEach(voice => {
-      try {
-        voice.osc.stop();
-        voice.lfo.stop();
-        voice.osc.disconnect();
-        voice.lfo.disconnect();
-        voice.nodes.forEach(n => n.disconnect());
-      } catch(e) {}
-    });
+  if (pad.clapperIntervals) {
+    pad.clapperIntervals.forEach(id => clearInterval(id));
+    pad.clapperIntervals = null;
   }
-
-  // Cleanup applause
-  if (s.activeNodes.clappers) {
-    s.activeNodes.clappers.forEach(intervalId => clearInterval(intervalId));
+  if (pad.cricketsInterval) {
+    clearInterval(pad.cricketsInterval);
+    pad.cricketsInterval = null;
   }
-  if (s.activeNodes.bgNoise) {
-    try { s.activeNodes.bgNoise.stop(); s.activeNodes.bgNoise.disconnect(); } catch(e) {}
+  if ('speechSynthesis' in window && (pad.presetId === "stinks" || pad.presetId === "cleanup")) {
+    window.speechSynthesis.cancel();
   }
-  if (s.activeNodes.bgGain) s.activeNodes.bgGain.disconnect();
-  if (s.activeNodes.bgFilter) s.activeNodes.bgFilter.disconnect();
-
-  s.activeNodes = null;
 }
 
 // ==========================================
 // Playing & Stopping Sound Controls
 // ==========================================
 
-async function playSound(id) {
+async function playPad(index) {
   await resumeAudioContext();
-  const s = sounds[id];
+  const pad = padStates[currentBank][index];
 
-  // If already playing, stop it first to restart trigger (polyphonic overlap control)
-  if (s.isPlaying) {
-    stopSound(id);
+  // If already playing, stop first to restart (snappy MPC re-trigger)
+  if (pad.isPlaying) {
+    stopPad(index);
   }
 
-  if (isSynthesizerMode) {
-    triggerSynth(id);
-  } else {
-    // Recording Player mode
-    s.isPlaying = true;
-    setCardUIState(id, true);
-    s.audioElement.loop = s.loop;
-    s.audioElement.currentTime = 0;
+  pad.isPlaying = true;
+  setPadUIState(index, true);
+
+  // 1. Play loaded AudioBuffer (either local file or cached web sound)
+  if (pad.audioBuffer) {
+    const sourceNode = audioCtx.createBufferSource();
+    sourceNode.buffer = pad.audioBuffer;
+    sourceNode.loop = pad.loop;
     
-    // Play with fallback handling
-    s.audioElement.play().catch(err => {
-      console.warn(`Local file playback failed: ${err.message}. Cascading to Web Audio synthesis fallback.`);
-      triggerSynth(id);
-    });
+    // Connect to pad gain node
+    sourceNode.connect(pad.gainNode);
+    pad.activeSources.push(sourceNode);
+
+    sourceNode.onended = () => {
+      pad.activeSources = pad.activeSources.filter(src => src !== sourceNode);
+      if (pad.activeSources.length === 0 && !pad.loop) {
+        pad.isPlaying = false;
+        setPadUIState(index, false);
+      }
+    };
+
+    sourceNode.start(0);
+
+  // 2. Play preset sound (fetched buffer or synth fallback)
+  } else if (pad.presetId) {
+    playSynthSound(pad.presetId, pad.gainNode, pad.duration, pad);
+
+    // Timeout release
+    pad.playTimeout = setTimeout(() => {
+      if (pad.loop && pad.isPlaying) {
+        cleanupSynthNodes(pad);
+        playPad(index); // loop trigger
+      } else {
+        stopPad(index);
+      }
+    }, pad.duration * 1000);
+
+  // 3. Play Web/GitHub Sound that hasn't loaded or failed
+  } else if (pad.url && !pad.audioBuffer) {
+    // If it's a web sound but not decoded yet, fetch and decode, then play
+    setPadUIState(index, true);
+    try {
+      await fetchAndDecodeSound(pad, pad.url);
+      if (pad.audioBuffer && pad.isPlaying) {
+        // Recurse play now that buffer is decoded
+        pad.isPlaying = false; // reset state before play
+        playPad(index);
+      } else {
+        stopPad(index);
+      }
+    } catch(e) {
+      stopPad(index);
+    }
+  } else if (pad.customFile && !pad.audioBuffer) {
+    // If local file is not decoded yet, decode it, then play
+    setPadUIState(index, true);
+    const fileReader = new FileReader();
+    fileReader.onload = (e) => {
+      const ab = e.target.result;
+      decodeAudioDataSafe(ab, pad.customFile.name)
+        .then((decoded) => {
+          pad.audioBuffer = decoded;
+          if (pad.isPlaying) {
+            pad.isPlaying = false;
+            playPad(index);
+          }
+        })
+        .catch((err) => {
+          stopPad(index);
+          console.error("Decoding custom file failed:", err);
+        });
+    };
+    fileReader.readAsArrayBuffer(pad.customFile);
+  } else {
+    // Empty pad
+    pad.isPlaying = false;
+    setPadUIState(index, false);
   }
 }
 
-function stopSound(id) {
-  const s = sounds[id];
-  if (!s.isPlaying) return;
+function stopPad(index) {
+  const pad = padStates[currentBank][index];
+  if (!pad.isPlaying) return;
 
-  s.isPlaying = false;
-  setCardUIState(id, false);
+  pad.isPlaying = false;
+  setPadUIState(index, false);
 
-  // Clear scheduling timeout
-  if (s.playTimeout) {
-    clearTimeout(s.playTimeout);
-    s.playTimeout = null;
+  if (pad.playTimeout) {
+    clearTimeout(pad.playTimeout);
+    pad.playTimeout = null;
   }
 
-  if (isSynthesizerMode || !s.audioElement.paused) {
-    // Stop recording or synth
-    if (s.audioElement) {
-      s.audioElement.pause();
-      s.audioElement.currentTime = 0;
-    }
-    cleanupSynthNodes(s);
+  // Stop buffer source node
+  if (pad.activeSources) {
+    pad.activeSources.forEach(source => {
+      try { source.stop(); source.disconnect(); } catch(e) {}
+    });
+    pad.activeSources = [];
   }
+
+  cleanupSynthNodes(pad);
 }
 
 function stopAllSounds() {
-  Object.keys(sounds).forEach(id => {
-    stopSound(id);
+  const pads = padStates[currentBank];
+  pads.forEach((_, index) => {
+    stopPad(index);
   });
 }
 
-// Sync Sound Card with UI states (active colors, buttons state)
-function setCardUIState(id, active) {
-  const card = document.querySelector(`.pad-${id}`);
-  const stopBtn = document.getElementById(`stop-${id}`);
+function setPadUIState(index, active) {
+  const padEl = document.querySelector(`[data-index="${index}"]`);
+  const stopBtn = padEl ? padEl.querySelector(".pad-stop-btn") : null;
   
   if (active) {
-    card.classList.add("playing");
-    stopBtn.removeAttribute("disabled");
+    if (padEl) padEl.classList.add("playing");
+    if (stopBtn) stopBtn.removeAttribute("disabled");
   } else {
-    card.classList.remove("playing");
-    stopBtn.setAttribute("disabled", "true");
+    if (padEl) padEl.classList.remove("playing");
+    if (stopBtn) stopBtn.setAttribute("disabled", "true");
   }
 }
 
 // ==========================================
-// Canvas Audio Waveform Visualizer
+// Custom Audio Upload Handlers
+// ==========================================
+
+// Fetch and decode a remote sound with global caching
+async function fetchAndDecodeSound(pad, url) {
+  if (urlCache[url]) {
+    pad.audioBuffer = urlCache[url];
+    return;
+  }
+
+  try {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const arrayBuffer = await response.arrayBuffer();
+    
+    const decoded = await decodeAudioDataSafe(arrayBuffer, url);
+    urlCache[url] = decoded;
+    pad.audioBuffer = decoded;
+  } catch (e) {
+    console.error("Failed to fetch hosted audio:", e);
+    pad.title = "Load Error";
+    updatePadDOM(Object.keys(padStates[currentBank]).find(k => padStates[currentBank][k] === pad));
+    throw e;
+  }
+}
+
+async function handleAbletonClip(index, file) {
+  const fileReader = new FileReader();
+  fileReader.onload = async (e) => {
+    const buffer = e.target.result;
+    let xmlText = "";
+    
+    // Check if gzipped (magic bytes: 0x1f, 0x8b)
+    const isGzipped = new Uint8Array(buffer.slice(0, 2))[0] === 0x1f && new Uint8Array(buffer.slice(0, 2))[1] === 0x8b;
+    
+    try {
+      if (isGzipped) {
+        // Decompress using Compression Streams API (DecompressionStream)
+        const response = new Response(buffer);
+        const decompressedStream = response.body.pipeThrough(new DecompressionStream("gzip"));
+        xmlText = await new Response(decompressedStream).text();
+      } else {
+        xmlText = new TextDecoder().decode(buffer);
+      }
+
+      // Parse XML or search for file references
+      const nameRegex = /Name\s+Value="([^"]+\.(?:wav|aif|aiff|flac|mp3|m4a|mp4|aac|ogg))"/i;
+      const fileRefRegex = /<FileRef[^>]*>[\s\S]*?<Name\s+Value="([^"]+)"/i;
+      
+      let refName = "";
+      let match = xmlText.match(fileRefRegex);
+      if (match) {
+        refName = match[1];
+      } else {
+        match = xmlText.match(nameRegex);
+        if (match) refName = match[1];
+      }
+      
+      if (refName) {
+        alert(`Ableton Clip (.alc) loaded!\n\nThis clip references the audio sample:\n👉 "${refName}"\n\nSince browsers cannot access local files directly, please locate and drag-and-drop the actual file "${refName}" (or click the pad to choose it) to load the audio.`);
+      } else {
+        alert("Ableton Clip (.alc) parsed, but we couldn't locate a direct audio file reference inside the metadata. Please upload the raw WAV/AIFF audio file directly.");
+      }
+    } catch (err) {
+      console.error("Failed to parse Ableton Live Clip:", err);
+      alert("This Ableton Clip (.alc) could not be parsed. Please upload the raw audio file (.wav, .aif, .aiff) instead.");
+    }
+  };
+  fileReader.readAsArrayBuffer(file);
+}
+
+async function handleAudioUpload(index, file) {
+  await resumeAudioContext();
+  const pad = padStates[currentBank][index];
+
+  // Stop current if playing
+  stopPad(index);
+
+  const lowerName = file.name.toLowerCase();
+
+  // Ableton specific formats checks
+  if (lowerName.endsWith(".alc")) {
+    handleAbletonClip(index, file);
+    return;
+  }
+
+  if (lowerName.endsWith(".asd")) {
+    alert("This is an Ableton Analysis File (.asd), which stores warp markers and wave shape metadata, but does not contain playable audio.\n\nPlease upload the original audio file (e.g. .wav or .aiff file with the same name) instead.");
+    return;
+  }
+
+  if (lowerName.endsWith(".als")) {
+    alert("This is an Ableton Live Set (.als), which represents a full Ableton project.\n\nPlease bounce/export your track or clip to a WAV, AIFF, or FLAC audio file from Ableton Live first, then load that audio file here.");
+    return;
+  }
+
+  // Open the audio trimmer modal for cropping
+  openAudioTrimmerModal(index, file);
+}
+
+// Reload custom user sounds from IndexedDB on page load/bank switch
+async function loadCustomSoundsFromDB() {
+  const pads = padStates[currentBank];
+  for (let i = 0; i < pads.length; i++) {
+    const saved = await loadPadDataFromDB(currentBank, i);
+    if (saved) {
+      const pad = pads[i];
+      pad.presetId = null;
+
+      // Case A: Stored remote Web URL sound
+      if (saved.type === "web") {
+        pad.title = saved.title;
+        pad.url = saved.url;
+        pad.customFile = null;
+        pad.volume = saved.volume !== undefined ? saved.volume : 1.0;
+        pad.loop = saved.loop !== undefined ? saved.loop : false;
+
+        if (pad.gainNode && audioCtx) {
+          pad.gainNode.gain.setValueAtTime(pad.volume, audioCtx.currentTime);
+        }
+
+      // Case B: Stored local uploaded File sound
+      } else if (saved.type === "local" || saved instanceof File) {
+        const file = saved instanceof File ? saved : saved.file;
+        pad.customFile = file;
+        pad.url = null;
+        pad.volume = saved.volume !== undefined ? saved.volume : 1.0;
+        pad.loop = saved.loop !== undefined ? saved.loop : false;
+        
+        let name = file.name.substring(0, file.name.lastIndexOf('.')) || file.name;
+        if (name.length > 16) name = name.substring(0, 14) + "...";
+        pad.title = name;
+
+        if (pad.gainNode && audioCtx) {
+          pad.gainNode.gain.setValueAtTime(pad.volume, audioCtx.currentTime);
+        }
+      }
+    }
+  }
+
+  // Update UI and trigger decoding if AudioContext is initialized
+  for (let i = 0; i < pads.length; i++) {
+    updatePadDOM(i);
+  }
+  if (audioCtx) {
+    decodeAllLoadedCustomSounds();
+  }
+}
+
+// Reset Soundboard
+async function resetBoard() {
+  if (confirm("Are you sure you want to reset the soundboard? This will delete all your uploaded custom sound pads across all banks.")) {
+    stopAllSounds();
+    await clearDB();
+    
+    // Reinitialize state
+    Object.keys(padStates).forEach(bankKey => {
+      padStates[bankKey] = Array.from({ length: 16 }, (_, i) => createInitialPad(i, bankKey));
+      padStates[bankKey].forEach(pad => {
+        if (audioCtx) setupPadGainNode(pad);
+      });
+    });
+
+    if (audioCtx) {
+      await loadPresetFiles();
+    }
+
+    renderSoundboard();
+  }
+}
+
+// ==========================================
+// Pad Configuration Modal Managers
+// ==========================================
+
+function openPadConfigModal(index) {
+  resumeAudioContext();
+  editingPadIndex = index;
+  
+  const modal = document.getElementById("pad-config-modal");
+  const padNumSpan = document.getElementById("modal-pad-num");
+  const searchInput = document.getElementById("modal-sound-search");
+
+  // Reset modal state
+  padNumSpan.textContent = index + 1;
+  searchInput.value = "";
+  
+  // Show Step 1, hide Step 2
+  document.getElementById("modal-step-choose").classList.remove("hidden");
+  document.getElementById("modal-step-search").classList.add("hidden");
+
+  // Show modal overlay
+  modal.classList.add("show");
+  modal.setAttribute("aria-hidden", "false");
+
+  // Populate curated list in background
+  renderModalSoundList("");
+}
+
+function closePadConfigModal() {
+  const modal = document.getElementById("pad-config-modal");
+  modal.classList.remove("show");
+  modal.setAttribute("aria-hidden", "true");
+  editingPadIndex = null;
+}
+
+function renderModalSoundList(query) {
+  const listContainer = document.getElementById("modal-sound-list");
+  listContainer.innerHTML = "";
+
+  const filtered = WEB_SOUNDS.filter(s => 
+    s.title.toLowerCase().includes(query.toLowerCase()) || 
+    s.category.toLowerCase().includes(query.toLowerCase())
+  );
+
+  filtered.forEach(sound => {
+    const item = document.createElement("div");
+    item.className = "modal-sound-item";
+    item.innerHTML = `
+      <div class="modal-sound-info">
+        <span class="modal-sound-title">${sound.title}</span>
+      </div>
+      <span class="modal-sound-category">${sound.category}</span>
+    `;
+
+    // Click sound item to select
+    item.addEventListener("click", async () => {
+      const pad = padStates[currentBank][editingPadIndex];
+      stopPad(editingPadIndex);
+
+      // Save properties
+      pad.title = sound.title;
+      pad.url = sound.url;
+      pad.presetId = null;
+      pad.customFile = null;
+      pad.audioBuffer = null; // Clear old buffer
+
+      // Store in DB
+      try {
+        await savePadDataToDB(currentBank, editingPadIndex, {
+          type: "web",
+          title: sound.title,
+          url: sound.url,
+          volume: pad.volume,
+          loop: pad.loop
+        });
+      } catch (err) {
+        console.error("Failed to save web metadata to DB:", err);
+      }
+
+      // Render pad details
+      updatePadDOM(editingPadIndex);
+      closePadConfigModal();
+
+      // Trigger fetch-and-decode immediately in background
+      fetchAndDecodeSound(pad, sound.url).then(() => {
+        updatePadDOM(editingPadIndex);
+      }).catch(() => {});
+    });
+
+    listContainer.appendChild(item);
+  });
+
+  if (filtered.length === 0) {
+    listContainer.innerHTML = `<div style="text-align:center; padding: 1.5rem; font-size: 0.75rem; font-weight:700; color: var(--text-muted);">No matching sounds found.</div>`;
+  }
+}
+
+// ==========================================
+// Rendering and DOM Managers
+// ==========================================
+
+function renderSoundboard() {
+  const grid = document.getElementById("soundboard-grid");
+  grid.innerHTML = "";
+
+  const pads = padStates[currentBank];
+  pads.forEach((pad, index) => {
+    const card = document.createElement("article");
+    card.className = "sound-card";
+    card.setAttribute("data-index", index);
+    
+    card.innerHTML = `
+      <div class="card-header">
+        <span class="hotkey-badge">${getHotkeyText(index)}</span>
+        <div style="display:flex; gap:0.25rem;">
+          <button class="loop-btn-pad ${pad.loop ? 'active' : ''}" aria-label="Loop pad" title="Toggle Loop">L</button>
+          <button class="loop-btn-pad pad-edit-btn" aria-label="Configure pad" title="Configure Pad">E</button>
+        </div>
+      </div>
+      <div class="pad-info">
+        <span class="pad-title">${pad.title}</span>
+        <span class="pad-subtitle">${getPadSubtitle(pad)}</span>
+      </div>
+      <div class="card-controls">
+        <input type="range" class="pad-vol-slider" min="0" max="1.5" step="0.05" value="${pad.volume}" aria-label="Pad volume" title="Pad Volume">
+        <button class="pad-stop-btn" aria-label="Stop pad" disabled>■</button>
+      </div>
+      <input type="file" class="hidden-file-input" accept="audio/*, .wav, .aif, .aiff, .flac, .mp3, .m4a, .aac, .ogg, .alc, .asd, .als">
+    `;
+
+    // Click trigger playing
+    card.addEventListener("click", () => {
+      playPad(index);
+    });
+
+    // Edit button opens modal
+    card.querySelector(".pad-edit-btn").addEventListener("click", (e) => {
+      e.stopPropagation(); // Stop play click trigger
+      openPadConfigModal(index);
+    });
+
+    // Double-click is still supported as a shortcut to open the modal
+    card.addEventListener("dblclick", (e) => {
+      e.stopPropagation();
+      openPadConfigModal(index);
+    });
+
+    // Hidden input change trigger (for local file option)
+    card.querySelector(".hidden-file-input").addEventListener("change", (e) => {
+      if (e.target.files.length > 0) {
+        handleAudioUpload(index, e.target.files[0]);
+      }
+    });
+
+    // Loop trigger toggle
+    card.querySelector(".loop-btn-pad:not(.pad-edit-btn)").addEventListener("click", async (e) => {
+      e.stopPropagation();
+      pad.loop = !pad.loop;
+      e.target.classList.toggle("active", pad.loop);
+      if (pad.customFile || pad.url) {
+        await saveCustomPadSettings(currentBank, index, pad);
+      }
+    });
+
+    // Stop pad trigger
+    card.querySelector(".pad-stop-btn").addEventListener("click", (e) => {
+      e.stopPropagation();
+      stopPad(index);
+    });
+
+    // Volume slider trigger
+    card.querySelector(".pad-vol-slider").addEventListener("click", (e) => {
+      e.stopPropagation();
+    });
+
+    card.querySelector(".pad-vol-slider").addEventListener("input", (e) => {
+      const val = parseFloat(e.target.value);
+      pad.volume = val;
+      if (pad.gainNode && audioCtx) {
+        pad.gainNode.gain.setValueAtTime(val, audioCtx.currentTime);
+      }
+    });
+
+    card.querySelector(".pad-vol-slider").addEventListener("change", async (e) => {
+      if (pad.customFile || pad.url) {
+        await saveCustomPadSettings(currentBank, index, pad);
+      }
+    });
+
+    // Drag-and-Drop events
+    card.addEventListener("dragenter", (e) => {
+      e.preventDefault();
+      card.classList.add("drag-over");
+    });
+
+    card.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      card.classList.add("drag-over");
+    });
+
+    card.addEventListener("dragleave", () => {
+      card.classList.remove("drag-over");
+    });
+
+    card.addEventListener("drop", (e) => {
+      e.preventDefault();
+      card.classList.remove("drag-over");
+      if (e.dataTransfer.files.length > 0) {
+        handleAudioUpload(index, e.dataTransfer.files[0]);
+      }
+    });
+
+    grid.appendChild(card);
+  });
+}
+
+function updatePadDOM(index) {
+  const pad = padStates[currentBank][index];
+  const padEl = document.querySelector(`[data-index="${index}"]`);
+  if (!padEl) return;
+
+  padEl.querySelector(".pad-title").textContent = pad.title;
+  padEl.querySelector(".pad-subtitle").textContent = getPadSubtitle(pad);
+}
+
+function getPadSubtitle(pad) {
+  if (pad.presetId) return "Preset";
+  if (pad.customFile) return "Custom File";
+  if (pad.url) return "GitHub Audio";
+  return "Empty Slot";
+}
+
+function getHotkeyText(index) {
+  return Object.keys(keyMap).find(key => keyMap[key] === index).toUpperCase();
+}
+
+// ==========================================
+// Canvas Audio Visualizer
 // ==========================================
 
 function startVisualizer() {
-  canvas = document.getElementById("visualizer-canvas");
-  canvasCtx = canvas.getContext("2d");
+  const canvas = document.getElementById("visualizer-canvas");
+  const canvasCtx = canvas.getContext("2d");
 
-  // Resize canvas to match display container boundary
   function resizeCanvas() {
     canvas.width = canvas.parentElement.clientWidth * window.devicePixelRatio;
     canvas.height = canvas.parentElement.clientHeight * window.devicePixelRatio;
@@ -609,28 +1505,21 @@ function startVisualizer() {
     const width = canvas.width / window.devicePixelRatio;
     const height = canvas.height / window.devicePixelRatio;
 
-    // Clear Canvas with alpha fade to create motion trail blur
-    canvasCtx.fillStyle = "rgba(7, 9, 19, 0.25)";
+    // Clear Canvas
+    canvasCtx.fillStyle = "#ffffff";
     canvasCtx.fillRect(0, 0, width, height);
 
     if (visualizerMode === "wave") {
-      // Waveform / Oscilloscope view
       analyserNode.getByteTimeDomainData(dataArray);
 
-      canvasCtx.lineWidth = 2.5;
-      canvasCtx.strokeStyle = "rgba(0, 162, 255, 0.85)";
-      
-      // Neon shadow glow effect
-      canvasCtx.shadowBlur = 8;
-      canvasCtx.shadowColor = "#00A2FF";
-
+      canvasCtx.lineWidth = 3;
+      canvasCtx.strokeStyle = "#000000";
       canvasCtx.beginPath();
 
       const sliceWidth = width / bufferLength;
       let x = 0;
 
       for (let i = 0; i < bufferLength; i++) {
-        // Data centered around 128 (unsigned byte middle)
         const v = dataArray[i] / 128.0;
         const y = (v * height) / 2;
 
@@ -646,26 +1535,17 @@ function startVisualizer() {
       canvasCtx.lineTo(width, height / 2);
       canvasCtx.stroke();
     } else {
-      // Frequency Spectrum Bar view
       analyserNode.getByteFrequencyData(dataArray);
-
-      canvasCtx.shadowBlur = 0; // Disable blur shadows on heavy spectrum bars for performance
 
       const barWidth = (width / bufferLength) * 1.5;
       let barHeight;
       let x = 0;
 
+      canvasCtx.fillStyle = "#000000";
+
       for (let i = 0; i < bufferLength; i++) {
-        barHeight = dataArray[i] / 2.2;
-
-        // Custom rainbow-glowing visualizer gradient
-        const grad = canvasCtx.createLinearGradient(0, height, 0, height - barHeight);
-        grad.addColorStop(0, "#4568dc");
-        grad.addColorStop(1, "#38ef7d");
-
-        canvasCtx.fillStyle = grad;
-        canvasCtx.fillRect(x, height - barHeight, barWidth - 2, barHeight);
-
+        barHeight = dataArray[i] / 4.2;
+        canvasCtx.fillRect(x, height - barHeight, barWidth - 1, barHeight);
         x += barWidth;
       }
     }
@@ -679,29 +1559,54 @@ function startVisualizer() {
 // ==========================================
 
 document.addEventListener("DOMContentLoaded", () => {
-  // Mode Selection switch handler
-  const modeToggle = document.getElementById("mode-toggle");
-  const modeRecText = document.getElementById("mode-rec-text");
-  const modeSynthText = document.getElementById("mode-synth-text");
+  // Render Soundboard on load
+  renderSoundboard();
 
-  modeToggle.addEventListener("click", () => {
-    isSynthesizerMode = !isSynthesizerMode;
-    modeToggle.setAttribute("aria-checked", isSynthesizerMode);
-    
-    // UI active font toggling
-    if (isSynthesizerMode) {
-      modeSynthText.classList.add("active");
-      modeRecText.classList.remove("active");
-    } else {
-      modeRecText.classList.add("active");
-      modeSynthText.classList.remove("active");
-    }
-
-    // Stop all active playbacks when shifting sources
-    stopAllSounds();
+  // Load Custom Sounds from DB
+  openDB().then(() => {
+    loadCustomSoundsFromDB();
   });
 
-  // Global Volume control handler
+  // Set up ResizeObserver for Trimmer Waveform Canvas to handle layout reflows dynamically
+  const trimmerObserverCanvas = document.getElementById("trimmer-waveform-canvas");
+  if (trimmerObserverCanvas) {
+    const trimmerResizeObserver = new ResizeObserver(() => {
+      if (trimmerAudioBuffer) {
+        drawTrimmerWaveform();
+      }
+    });
+    trimmerResizeObserver.observe(trimmerObserverCanvas);
+  }
+
+  // Bank Switches
+  const bankButtons = document.querySelectorAll(".bank-btn");
+  bankButtons.forEach(btn => {
+    btn.addEventListener("click", async (e) => {
+      const targetBank = e.target.getAttribute("data-bank");
+      if (currentBank === targetBank) return;
+
+      // Stop sounds of active bank first
+      stopAllSounds();
+
+      // Toggle Active buttons
+      bankButtons.forEach(b => b.classList.remove("active"));
+      e.target.classList.add("active");
+
+      // Switch state and re-render
+      currentBank = targetBank;
+      
+      if (audioCtx) {
+        padStates[currentBank].forEach(pad => {
+          setupPadGainNode(pad);
+        });
+      }
+
+      renderSoundboard();
+      await loadCustomSoundsFromDB();
+    });
+  });
+
+  // Global Volume Slider
   const globalVolInput = document.getElementById("global-volume");
   const globalVolValue = document.getElementById("global-volume-value");
 
@@ -713,46 +1618,13 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // Sound grid triggers
-  Object.keys(sounds).forEach(id => {
-    const card = document.querySelector(`.pad-${id}`);
-    const trigger = card.querySelector(".pad-trigger");
-    const stopBtn = document.getElementById(`stop-${id}`);
-    const loopBtn = document.getElementById(`loop-${id}`);
-    const volInput = document.getElementById(`vol-${id}`);
+  // Action Buttons
+  document.getElementById("btn-stop-all").addEventListener("click", () => {
+    stopAllSounds();
+  });
 
-    // Click to Play trigger
-    trigger.addEventListener("click", () => {
-      playSound(id);
-    });
-
-    // Stop button click
-    stopBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      stopSound(id);
-    });
-
-    // Loop button toggle
-    loopBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const s = sounds[id];
-      s.loop = !s.loop;
-      loopBtn.setAttribute("aria-pressed", s.loop);
-      
-      // If using HTML5 audio elements, update property directly
-      if (s.audioElement) {
-        s.audioElement.loop = s.loop;
-      }
-    });
-
-    // Per-sound volume sliders
-    volInput.addEventListener("input", (e) => {
-      const val = parseFloat(e.target.value);
-      sounds[id].gainNodeValue = val;
-      if (sounds[id].gainNode) {
-        sounds[id].gainNode.gain.setValueAtTime(val, audioCtx.currentTime);
-      }
-    });
+  document.getElementById("btn-clear-custom").addEventListener("click", () => {
+    resetBoard();
   });
 
   // Visualizer Mode toggle
@@ -768,9 +1640,55 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("viz-mode-wave").classList.remove("active");
   });
 
-  // Keyboard Hotkey triggers
+  // ==========================================
+  // Modal Event Listeners
+  // ==========================================
+  
+  const modal = document.getElementById("pad-config-modal");
+  const closeBtn = document.getElementById("modal-close-btn");
+  const sourceLocalBtn = document.getElementById("btn-source-local");
+  const sourceWebBtn = document.getElementById("btn-source-web");
+  const searchBackBtn = document.getElementById("btn-search-back");
+  const modalSearchInput = document.getElementById("modal-sound-search");
+
+  // Close modal click
+  closeBtn.addEventListener("click", closePadConfigModal);
+  
+  // Close on overlay backdrop click
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) closePadConfigModal();
+  });
+
+  // Select Option Local: open file picker
+  sourceLocalBtn.addEventListener("click", async () => {
+    await resumeAudioContext();
+    const activeCard = document.querySelector(`[data-index="${editingPadIndex}"]`);
+    if (activeCard) {
+      activeCard.querySelector(".hidden-file-input").click();
+    }
+    closePadConfigModal();
+  });
+
+  // Select Option Web: open step 2 search catalog
+  sourceWebBtn.addEventListener("click", () => {
+    document.getElementById("modal-step-choose").classList.add("hidden");
+    document.getElementById("modal-step-search").classList.remove("hidden");
+    modalSearchInput.focus();
+  });
+
+  // Back to select step
+  searchBackBtn.addEventListener("click", () => {
+    document.getElementById("modal-step-search").classList.add("hidden");
+    document.getElementById("modal-step-choose").classList.remove("hidden");
+  });
+
+  // Search input change in modal
+  modalSearchInput.addEventListener("input", (e) => {
+    renderModalSoundList(e.target.value);
+  });
+
+  // Keyboard Hotkey triggers (4x4 matrix)
   window.addEventListener("keydown", (e) => {
-    // Ignore keystrokes inside search input
     if (document.activeElement.tagName === "INPUT" || document.activeElement.tagName === "TEXTAREA") {
       return;
     }
@@ -784,45 +1702,694 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    const soundId = keyMap[key];
-    if (soundId) {
+    const padIndex = keyMap[key];
+    if (padIndex !== undefined) {
       e.preventDefault();
-      playSound(soundId);
       
-      // Simulate button click visual depression for keyboard user response
-      const triggerBtn = document.getElementById(`btn-${soundId}`);
-      if (triggerBtn) {
-        triggerBtn.parentElement.classList.add("keyboard-active");
-      }
+      // Simulate hardware click press styling
+      const padEl = document.querySelector(`[data-index="${padIndex}"]`);
+      if (padEl) padEl.classList.add("keyboard-active");
+      
+      playPad(padIndex);
     }
   });
 
   window.addEventListener("keyup", (e) => {
     const key = e.key.toLowerCase();
-    const soundId = keyMap[key];
-    if (soundId) {
-      const triggerBtn = document.getElementById(`btn-${soundId}`);
-      if (triggerBtn) {
-        triggerBtn.parentElement.classList.remove("keyboard-active");
-      }
+    const padIndex = keyMap[key];
+    if (padIndex !== undefined) {
+      const padEl = document.querySelector(`[data-index="${padIndex}"]`);
+      if (padEl) padEl.classList.remove("keyboard-active");
     }
   });
 
-  // Real-time Search and Filter Soundboard Pads
-  const searchInput = document.getElementById("sound-search");
-  searchInput.addEventListener("input", (e) => {
-    const query = e.target.value.toLowerCase().trim();
-    
-    Object.keys(sounds).forEach(id => {
-      const card = document.querySelector(`.pad-${id}`);
-      const s = sounds[id];
-      const match = s.title.toLowerCase().includes(query) || id.includes(query) || s.emoji.includes(query);
+  // ==========================================
+  // Audio Trimmer Modal Event Listeners
+  // ==========================================
+  const trimmerModal = document.getElementById("audio-trimmer-modal");
+  const trimmerCloseBtn = document.getElementById("trimmer-close-btn");
+  const trimmerCancelBtn = document.getElementById("btn-trimmer-cancel");
+  const trimmerPreviewBtn = document.getElementById("btn-trimmer-preview");
+  const trimmerSaveBtn = document.getElementById("btn-trimmer-save");
+  const trimmerRange = document.getElementById("trimmer-range");
+  const trimmerCanvas = document.getElementById("trimmer-waveform-canvas");
 
-      if (match || query === "") {
-        card.style.display = "";
-      } else {
-        card.style.display = "none";
+  trimmerCloseBtn.addEventListener("click", closeAudioTrimmerModal);
+  trimmerCancelBtn.addEventListener("click", closeAudioTrimmerModal);
+  
+  trimmerModal.addEventListener("click", (e) => {
+    if (e.target === trimmerModal) closeAudioTrimmerModal();
+  });
+
+  trimmerRange.addEventListener("input", (e) => {
+    if (!trimmerAudioBuffer) return;
+    trimmerStartSec = parseFloat(e.target.value);
+    const duration = trimmerAudioBuffer.duration;
+    const sliceDuration = Math.min(5, duration);
+
+    document.getElementById("trimmer-start-time").textContent = `Start: ${formatTime(trimmerStartSec)}`;
+    document.getElementById("trimmer-end-time").textContent = `End: ${formatTime(trimmerStartSec + sliceDuration)}`;
+
+    // Stop active preview when scrubbing
+    stopTrimmerPreview();
+
+    drawTrimmerWaveform();
+  });
+
+  trimmerPreviewBtn.addEventListener("click", toggleTrimmerPreview);
+  trimmerSaveBtn.addEventListener("click", saveTrimmedClip);
+
+  // Drag and click on canvas to select audio slice visually
+  let isCanvasDragging = false;
+
+  function updateTrimmerFromClick(offsetX) {
+    if (!trimmerAudioBuffer) return;
+    const duration = trimmerAudioBuffer.duration;
+    const sliceDuration = Math.min(5, duration);
+    const canvasWidth = trimmerCanvas.clientWidth;
+    
+    // Calculate clicked time offset
+    const clickTime = (offsetX / canvasWidth) * duration;
+    
+    // Center the 5-second slice on the cursor
+    trimmerStartSec = Math.max(0, Math.min(duration - sliceDuration, clickTime - sliceDuration / 2));
+    
+    // Update range input slider
+    trimmerRange.value = trimmerStartSec;
+    
+    // Update timestamps
+    document.getElementById("trimmer-start-time").textContent = `Start: ${formatTime(trimmerStartSec)}`;
+    document.getElementById("trimmer-end-time").textContent = `End: ${formatTime(trimmerStartSec + sliceDuration)}`;
+    
+    // Stop active preview
+    stopTrimmerPreview();
+    
+    // Re-render
+    drawTrimmerWaveform();
+  }
+
+  trimmerCanvas.addEventListener("mousedown", (e) => {
+    isCanvasDragging = true;
+    updateTrimmerFromClick(e.offsetX);
+  });
+
+  trimmerCanvas.addEventListener("mousemove", (e) => {
+    if (isCanvasDragging) {
+      updateTrimmerFromClick(e.offsetX);
+    }
+  });
+
+  window.addEventListener("mouseup", () => {
+    isCanvasDragging = false;
+  });
+
+  // Touch triggers
+  trimmerCanvas.addEventListener("touchstart", (e) => {
+    isCanvasDragging = true;
+    const rect = e.target.getBoundingClientRect();
+    const offsetX = e.touches[0].clientX - rect.left;
+    updateTrimmerFromClick(offsetX);
+    e.preventDefault();
+  }, { passive: false });
+
+  trimmerCanvas.addEventListener("touchmove", (e) => {
+    if (isCanvasDragging) {
+      const rect = e.target.getBoundingClientRect();
+      const offsetX = e.touches[0].clientX - rect.left;
+      updateTrimmerFromClick(offsetX);
+      e.preventDefault();
+    }
+  }, { passive: false });
+
+  trimmerCanvas.addEventListener("touchend", () => {
+    isCanvasDragging = false;
+  });
+});
+
+// ==========================================
+// Audio Trimmer Helpers and Processing
+// ==========================================
+
+function openAudioTrimmerModal(padIndex, file) {
+  trimmerTargetPadIndex = padIndex;
+  trimmerFile = file;
+  trimmerAudioBuffer = null;
+  trimmerStartSec = 0;
+  trimmerPreviewSource = null;
+
+  const modal = document.getElementById("audio-trimmer-modal");
+  const loadingOverlay = document.getElementById("trimmer-loading-overlay");
+  const contentDiv = document.getElementById("trimmer-content");
+  const previewBtn = document.getElementById("btn-trimmer-preview");
+  const saveBtn = document.getElementById("btn-trimmer-save");
+
+  // Reset UI elements
+  loadingOverlay.classList.remove("hidden");
+  contentDiv.classList.add("hidden");
+  previewBtn.setAttribute("disabled", "true");
+  saveBtn.setAttribute("disabled", "true");
+  previewBtn.textContent = "Preview Trim";
+
+  // Show Trimmer Modal
+  modal.classList.add("show");
+  modal.setAttribute("aria-hidden", "false");
+
+  // Read and decode the audio file asynchronously
+  const fileReader = new FileReader();
+  fileReader.onload = async (e) => {
+    try {
+      const buffer = e.target.result;
+      if (!audioCtx) {
+        initAudio();
+      }
+      
+      // Force resume suspended AudioContext
+      if (audioCtx.state === "suspended") {
+        await audioCtx.resume();
+      }
+
+      decodeAudioDataSafe(buffer, trimmerFile.name)
+        .then((decodedBuffer) => {
+          try {
+            trimmerAudioBuffer = decodedBuffer;
+            
+            // Hide loading spinner and show trimmer controls
+            loadingOverlay.classList.add("hidden");
+            contentDiv.classList.remove("hidden");
+            previewBtn.removeAttribute("disabled");
+            saveBtn.removeAttribute("disabled");
+
+            // Setup scrubber range input values
+            const rangeSlider = document.getElementById("trimmer-range");
+            const maxScroll = Math.max(0, trimmerAudioBuffer.duration - 5);
+            rangeSlider.min = "0";
+            rangeSlider.max = maxScroll.toString();
+            rangeSlider.step = "0.02";
+            rangeSlider.value = "0";
+
+            // Setup initial labels
+            const sliceDuration = Math.min(5, trimmerAudioBuffer.duration);
+            document.getElementById("trimmer-start-time").textContent = "Start: 0.0s";
+            document.getElementById("trimmer-end-time").textContent = `End: ${formatTime(sliceDuration)}`;
+            document.getElementById("trimmer-total-duration").textContent = `Total: ${formatTime(trimmerAudioBuffer.duration)}`;
+
+            // Render waveform after a short delay to allow browser layout calculations
+            setTimeout(drawTrimmerWaveform, 50);
+          } catch (innerErr) {
+            console.error("Trimmer initialization error:", innerErr);
+            alert("Error rendering trimmer: " + innerErr.message);
+            closeAudioTrimmerModal();
+          }
+        })
+        .catch((err) => {
+          console.error("AudioContext decodeAudioData error:", err);
+          alert("Failed to decode audio file. Please check file format.");
+          closeAudioTrimmerModal();
+        });
+    } catch (err) {
+      console.error("FileReader onload error:", err);
+      alert("Error reading file: " + err.message);
+      closeAudioTrimmerModal();
+    }
+  };
+  fileReader.readAsArrayBuffer(file);
+}
+
+function closeAudioTrimmerModal() {
+  const modal = document.getElementById("audio-trimmer-modal");
+  modal.classList.remove("show");
+  modal.setAttribute("aria-hidden", "true");
+
+  stopTrimmerPreview();
+
+  trimmerFile = null;
+  trimmerAudioBuffer = null;
+  trimmerTargetPadIndex = null;
+}
+
+function formatTime(sec) {
+  if (isNaN(sec) || sec === null || sec === undefined) return "0.0s";
+  const mins = Math.floor(sec / 60);
+  const secsVal = (sec % 60).toFixed(1);
+  
+  if (mins > 0) {
+    const paddedSecs = secsVal.length < 4 ? "0" + secsVal : secsVal;
+    return `${mins}:${paddedSecs}`;
+  } else {
+    return `${secsVal}s`;
+  }
+}
+
+function drawTrimmerWaveform() {
+  const canvas = document.getElementById("trimmer-waveform-canvas");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  
+  // Use parent container dimensions, fall back to safe defaults if they are zero
+  const parentWidth = canvas.parentElement.clientWidth || 600;
+  const parentHeight = canvas.parentElement.clientHeight || 120;
+  
+  if (parentWidth <= 0 || parentHeight <= 0) return;
+
+  // Use window.devicePixelRatio for high-DPI crisp rendering
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = parentWidth * dpr;
+  canvas.height = parentHeight * dpr;
+  ctx.scale(dpr, dpr);
+
+  const width = parentWidth;
+  const height = parentHeight;
+
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, width, height);
+
+  if (!trimmerAudioBuffer) return;
+
+  const leftChannel = trimmerAudioBuffer.getChannelData(0);
+  const barWidth = 2;
+  const gap = 1;
+  const totalBars = Math.floor(width / (barWidth + gap));
+  
+  if (totalBars <= 0) return;
+
+  const step = Math.ceil(leftChannel.length / totalBars);
+  const amp = height / 2.2;
+
+  ctx.fillStyle = "#000000"; // Brutalist black bars
+
+  for (let i = 0; i < totalBars; i++) {
+    let min = 1.0;
+    let max = -1.0;
+    for (let j = 0; j < step; j++) {
+      const idx = i * step + j;
+      if (idx < leftChannel.length) {
+        const datum = leftChannel[idx];
+        if (datum < min) min = datum;
+        if (datum > max) max = datum;
+      }
+    }
+    
+    // Draw vertical bar representing min/max peak
+    const x = i * (barWidth + gap);
+    const y1 = (1 + min) * amp;
+    const y2 = (1 + max) * amp;
+    const barHeight = Math.max(1, y2 - y1);
+    ctx.fillRect(x, y1, barWidth, barHeight);
+  }
+
+  // Draw Highlight selection slice
+  const duration = trimmerAudioBuffer.duration;
+  const sliceDuration = Math.min(5, duration);
+
+  const startPercent = trimmerStartSec / duration;
+  const durationPercent = sliceDuration / duration;
+
+  const startX = startPercent * width;
+  const sliceWidth = durationPercent * width;
+
+  ctx.fillStyle = "rgba(57, 255, 20, 0.18)"; // transparent neon green
+  ctx.fillRect(startX, 0, sliceWidth, height);
+
+  ctx.strokeStyle = "#39ff14";
+  ctx.lineWidth = 2.0;
+  ctx.strokeRect(startX, 0, sliceWidth, height);
+
+  // Draw red playhead if preview is playing
+  if (trimmerPreviewSource && trimmerPreviewStartTime !== null) {
+    const elapsed = audioCtx.currentTime - trimmerPreviewStartTime;
+    const currentPlayTime = Math.min(trimmerStartSec + sliceDuration, trimmerStartSec + elapsed);
+    const playheadPercent = currentPlayTime / duration;
+    const playheadX = playheadPercent * width;
+
+    ctx.strokeStyle = "#ff0000";
+    ctx.lineWidth = 2.0;
+    ctx.beginPath();
+    ctx.moveTo(playheadX, 0);
+    ctx.lineTo(playheadX, height);
+    ctx.stroke();
+  }
+}
+
+function toggleTrimmerPreview() {
+  if (trimmerPreviewSource) {
+    stopTrimmerPreview();
+    return;
+  }
+
+  const sliceDuration = Math.min(5, trimmerAudioBuffer.duration);
+  trimmerPreviewSource = audioCtx.createBufferSource();
+  trimmerPreviewSource.buffer = trimmerAudioBuffer;
+  trimmerPreviewSource.connect(globalGainNode);
+
+  trimmerPreviewSource.onended = () => {
+    trimmerPreviewSource = null;
+    trimmerPreviewStartTime = null;
+    document.getElementById("btn-trimmer-preview").textContent = "Preview Trim";
+    drawTrimmerWaveform(); // Redraw once to clear playhead line
+  };
+
+  trimmerPreviewStartTime = audioCtx.currentTime;
+  trimmerPreviewSource.start(0, trimmerStartSec, sliceDuration);
+  document.getElementById("btn-trimmer-preview").textContent = "Stop Preview";
+
+  // Start playhead animation
+  animateTrimmerPlayhead();
+}
+
+function stopTrimmerPreview() {
+  if (trimmerPreviewSource) {
+    try { trimmerPreviewSource.stop(); } catch (e) {}
+    trimmerPreviewSource = null;
+    trimmerPreviewStartTime = null;
+  }
+  document.getElementById("btn-trimmer-preview").textContent = "Preview Trim";
+  drawTrimmerWaveform(); // Redraw once to clear playhead line
+}
+
+function animateTrimmerPlayhead() {
+  if (!trimmerPreviewSource) return;
+  drawTrimmerWaveform();
+  requestAnimationFrame(animateTrimmerPlayhead);
+}
+
+async function saveTrimmedClip() {
+  if (!trimmerAudioBuffer) return;
+
+  stopTrimmerPreview();
+
+  const sliceDuration = Math.min(5, trimmerAudioBuffer.duration);
+  const sampleRate = trimmerAudioBuffer.sampleRate;
+  const startSample = Math.floor(trimmerStartSec * sampleRate);
+  const numSamples = Math.round(sliceDuration * sampleRate);
+
+  // Sliced Buffer creation
+  const trimmedBuffer = audioCtx.createBuffer(
+    trimmerAudioBuffer.numberOfChannels,
+    numSamples,
+    sampleRate
+  );
+
+  for (let channel = 0; channel < trimmerAudioBuffer.numberOfChannels; channel++) {
+    const origData = trimmerAudioBuffer.getChannelData(channel);
+    const trimmedData = trimmedBuffer.getChannelData(channel);
+    for (let i = 0; i < numSamples; i++) {
+      const srcIdx = startSample + i;
+      trimmedData[i] = srcIdx < origData.length ? origData[srcIdx] : 0;
+    }
+  }
+
+  // Encode to WAV
+  const wavBlob = bufferToWav(trimmedBuffer);
+  const originalBase = trimmerFile.name.substring(0, trimmerFile.name.lastIndexOf('.')) || trimmerFile.name;
+  const newFileName = `${originalBase}_clip.wav`;
+  const newFile = new File([wavBlob], newFileName, { type: "audio/wav" });
+
+  const pad = padStates[currentBank][trimmerTargetPadIndex];
+  
+  // Stop pad if playing
+  stopPad(trimmerTargetPadIndex);
+
+  pad.audioBuffer = trimmedBuffer;
+  pad.customFile = newFile;
+  pad.presetId = null;
+  pad.url = null;
+
+  let name = newFileName.substring(0, newFileName.lastIndexOf('.')) || newFileName;
+  if (name.length > 16) name = name.substring(0, 14) + "...";
+  pad.title = name;
+
+  // Save to IndexedDB
+  try {
+    await savePadDataToDB(currentBank, trimmerTargetPadIndex, {
+      type: "local",
+      name: newFileName,
+      file: newFile,
+      volume: pad.volume,
+      loop: pad.loop
+    });
+  } catch (err) {
+    console.error("Failed to save trimmed clip to DB:", err);
+  }
+
+  updatePadDOM(trimmerTargetPadIndex);
+  closeAudioTrimmerModal();
+}
+
+// ==========================================
+// JavaScript AudioBuffer to WAV File Encoder
+// ==========================================
+
+function bufferToWav(buffer) {
+  const numOfChan = buffer.numberOfChannels;
+  const sampleRate = buffer.sampleRate;
+  const format = 1; // 1 = raw PCM (16-bit)
+  const bitDepth = 16;
+  
+  let result;
+  if (numOfChan === 2) {
+    result = interleave(buffer.getChannelData(0), buffer.getChannelData(1));
+  } else {
+    result = buffer.getChannelData(0);
+  }
+  
+  const bufferLength = result.length * 2;
+  const wavBuffer = new ArrayBuffer(44 + bufferLength);
+  const view = new DataView(wavBuffer);
+  
+  /* RIFF identifier */
+  writeString(view, 0, 'RIFF');
+  /* file length */
+  view.setUint32(4, 36 + bufferLength, true);
+  /* RIFF type */
+  writeString(view, 8, 'WAVE');
+  /* format chunk identifier */
+  writeString(view, 12, 'fmt ');
+  /* format chunk length */
+  view.setUint32(16, 16, true);
+  /* sample format (raw) */
+  view.setUint16(20, format, true);
+  /* channel count */
+  view.setUint16(22, numOfChan, true);
+  /* sample rate */
+  view.setUint32(24, sampleRate, true);
+  /* byte rate (sample rate * block align) */
+  view.setUint32(28, sampleRate * numOfChan * (bitDepth / 8), true);
+  /* block align (channel count * bytes per sample) */
+  view.setUint16(32, numOfChan * (bitDepth / 8), true);
+  /* bits per sample */
+  view.setUint16(34, bitDepth, true);
+  /* data chunk identifier */
+  writeString(view, 36, 'data');
+  /* data chunk length */
+  view.setUint32(40, bufferLength, true);
+  
+  // Write PCM audio samples
+  floatTo16BitPCM(view, 44, result);
+  
+  return new Blob([view], { type: 'audio/wav' });
+}
+
+function interleave(inputL, inputR) {
+  const length = inputL.length + inputR.length;
+  const result = new Float32Array(length);
+  let index = 0;
+  let inputIndex = 0;
+  
+  while (index < length) {
+    result[index++] = inputL[inputIndex];
+    result[index++] = inputR[inputIndex];
+    inputIndex++;
+  }
+  return result;
+}
+
+function floatTo16BitPCM(output, offset, input) {
+  for (let i = 0; i < input.length; i++, offset += 2) {
+    let s = Math.max(-1, Math.min(1, input[i]));
+    output.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+  }
+}
+
+function writeString(view, offset, string) {
+  for (let i = 0; i < string.length; i++) {
+    view.setUint8(offset + i, string.charCodeAt(i));
+  }
+}
+
+// ==========================================
+// Custom AIFF (Audio Interchange File) Decoder
+// ==========================================
+
+function decodeAudioDataSafe(buffer, filename) {
+  return new Promise((resolve, reject) => {
+    let triedAIFF = false;
+
+    // If it's a .aif or .aiff file, try custom AIFF decoder
+    if (filename && (filename.toLowerCase().endsWith(".aif") || filename.toLowerCase().endsWith(".aiff"))) {
+      triedAIFF = true;
+      try {
+        const decoded = decodeAIFF(buffer);
+        resolve(decoded);
+        return;
+      } catch (err) {
+        console.warn("Custom AIFF decoder failed, falling back to Web Audio decodeAudioData...", err);
+      }
+    }
+    
+    // Fall back to native decodeAudioData
+    if (!audioCtx) {
+      initAudio();
+    }
+    
+    // decodeAudioData detaches/neuters the input buffer.
+    // We clone it using slice(0) so the original remains intact if we need the AIFF fallback.
+    let bufferClone;
+    try {
+      bufferClone = buffer.slice(0);
+    } catch (sliceErr) {
+      bufferClone = buffer;
+    }
+
+    audioCtx.decodeAudioData(bufferClone, (decoded) => {
+      resolve(decoded);
+    }, (err) => {
+      if (triedAIFF) {
+        reject(err);
+        return;
+      }
+
+      // Final fallback try to decode as AIFF in case the extension was renamed/missing
+      try {
+        const decoded = decodeAIFF(buffer);
+        resolve(decoded);
+      } catch (finalErr) {
+        reject(err || finalErr);
       }
     });
   });
-});
+}
+
+function decodeAIFF(arrayBuffer) {
+  const view = new DataView(arrayBuffer);
+  
+  // Verify FORM header (AIFF/AIFC format indicator)
+  if (view.getUint32(0, false) !== 0x464F524D) { // "FORM"
+    throw new Error("Not a valid FORM/AIFF file (missing FORM tag)");
+  }
+  
+  const fileType = view.getUint32(8, false);
+  if (fileType !== 0x41494646 && fileType !== 0x41494643) { // "AIFF" or "AIFC"
+    throw new Error("Not a valid AIFF or AIFC file (unsupported format code)");
+  }
+  
+  let channels = 0;
+  let sampleFrames = 0;
+  let sampleSize = 0;
+  let sampleRate = 0;
+  let ssndOffset = 0;
+  let ssndLength = 0;
+  let compressionType = 0; // 0 = standard Big Endian PCM
+  
+  let offset = 12;
+  while (offset < arrayBuffer.byteLength - 8) {
+    const chunkId = view.getUint32(offset, false);
+    const chunkLen = view.getUint32(offset + 4, false);
+    
+    if (chunkId === 0x434F4D4D) { // "COMM"
+      channels = view.getUint16(offset + 8, false);
+      sampleFrames = view.getUint32(offset + 10, false);
+      sampleSize = view.getUint16(offset + 14, false);
+      sampleRate = readDouble80(view, offset + 16);
+      if (fileType === 0x41494643 && chunkLen >= 22) { // AIFC
+        compressionType = view.getUint32(offset + 26, false);
+      }
+    } else if (chunkId === 0x53534E44) { // "SSND"
+      const offsetParam = view.getUint32(offset + 8, false);
+      ssndOffset = offset + 16 + offsetParam;
+      ssndLength = chunkLen - 8;
+    }
+    
+    // Chunk length must be padded to even bytes
+    offset += 8 + (chunkLen % 2 === 0 ? chunkLen : chunkLen + 1);
+  }
+  
+  if (!channels || !sampleFrames || !sampleSize || !sampleRate || !ssndOffset) {
+    throw new Error("Missing required AIFF chunks (COMM or SSND)");
+  }
+  
+  // Support 8-bit, 16-bit, and 24-bit PCM
+  if (sampleSize !== 16 && sampleSize !== 24 && sampleSize !== 8) {
+    throw new Error(`Unsupported AIFF sample size: ${sampleSize}-bit`);
+  }
+  
+  if (!audioCtx) {
+    initAudio();
+  }
+  
+  // Create AudioBuffer
+  const buffer = audioCtx.createBuffer(channels, sampleFrames, Math.round(sampleRate));
+  const bytesPerSample = sampleSize / 8;
+  const blockAlign = channels * bytesPerSample;
+  
+  // 'sowt' is little endian PCM, standard AIFF and 'twos' is big endian
+  const isLittleEndian = (compressionType === 0x736F7774);
+  
+  // Extract samples
+  for (let channel = 0; channel < channels; channel++) {
+    const channelData = buffer.getChannelData(channel);
+    let sampleOffset = ssndOffset + (channel * bytesPerSample);
+    
+    for (let i = 0; i < sampleFrames; i++) {
+      if (sampleOffset >= arrayBuffer.byteLength) break;
+      
+      let val = 0;
+      if (sampleSize === 16) {
+        val = view.getInt16(sampleOffset, isLittleEndian) / 32768.0;
+      } else if (sampleSize === 24) {
+        let b0, b1, b2;
+        if (isLittleEndian) {
+          b0 = view.getUint8(sampleOffset + 2);
+          b1 = view.getUint8(sampleOffset + 1);
+          b2 = view.getUint8(sampleOffset);
+        } else {
+          b0 = view.getUint8(sampleOffset);
+          b1 = view.getUint8(sampleOffset + 1);
+          b2 = view.getUint8(sampleOffset + 2);
+        }
+        let intVal = (b0 << 16) | (b1 << 8) | b2;
+        if (intVal & 0x800000) intVal -= 0x1000000; // Sign extend
+        val = intVal / 8388608.0;
+      } else if (sampleSize === 8) {
+        val = view.getInt8(sampleOffset) / 128.0;
+      }
+      
+      channelData[i] = val;
+      sampleOffset += blockAlign;
+    }
+  }
+  
+  return buffer;
+}
+
+// Read IEEE 754 80-bit Extended Precision Float (Big Endian)
+function readDouble80(view, offset) {
+  const exponent = view.getUint16(offset, false);
+  const hiMant = view.getUint32(offset + 2, false);
+  const loMant = view.getUint32(offset + 6, false);
+  
+  const sign = (exponent & 0x8000) ? -1 : 1;
+  let exp = exponent & 0x7FFF;
+  
+  if (exp === 0 && hiMant === 0 && loMant === 0) {
+    return 0;
+  }
+  
+  if (exp === 0x7FFF) {
+    return hiMant === 0 && loMant === 0 ? sign * Infinity : NaN;
+  }
+  
+  exp -= 16383; // Bias
+  
+  let doubleVal = hiMant * Math.pow(2, exp - 31) + loMant * Math.pow(2, exp - 63);
+  return sign * doubleVal;
+}

@@ -3,82 +3,60 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SonicDeck - Premium Soundboard & Audio Synth</title>
-  <meta name="description" content="A high-fidelity glassmorphic soundboard featuring instant synthesizers, real-time audio visualization, and keyboard hotkeys.">
+  <title>Studio Soundboard - Minimalist MPC</title>
+  <meta name="description" content="A brutalist 4x4 MPC-style studio soundboard featuring multiple banks, Web Audio synthesis, and custom file uploads.">
   
-  <!-- Modern Fonts -->
+  <!-- Brutalist Google Font: Open Sans -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,300..800;1,300..800&display=swap" rel="stylesheet">
   
   <!-- CSS Stylesheet -->
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-  <!-- Background decorative glowing elements -->
-  <div class="ambient-glow glow-1" aria-hidden="true"></div>
-  <div class="ambient-glow glow-2" aria-hidden="true"></div>
-
   <div class="app-container">
     <!-- Header -->
     <header class="app-header">
-      <div class="header-main">
-        <div class="brand">
-          <div class="brand-logo" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 2v20M17 5v14M22 9v6M7 8v8M2 10v4"/>
-            </svg>
-          </div>
-          <h1>SonicDeck</h1>
-        </div>
-        
-        <p class="tagline">Interactive Soundboard & Web Audio Synthesizer</p>
-      </div>
-
-      <!-- Controls Dashboard -->
-      <div class="controls-dashboard glass-panel">
-        <!-- Search bar -->
-        <div class="search-box">
-          <svg class="search-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-          </svg>
-          <input type="search" id="sound-search" placeholder="Search sounds (e.g. Fart, Horn)..." aria-label="Search sound effects">
-        </div>
-
-        <!-- Audio Source Toggle -->
-        <div class="control-group">
-          <span class="control-label" id="mode-label">Audio Source</span>
-          <div class="toggle-container">
-            <span class="toggle-option active" id="mode-rec-text">Recordings</span>
-            <button type="button" role="switch" aria-checked="false" aria-labelledby="mode-label" id="mode-toggle" class="switch" title="Toggle between Studio Recording and Web Audio Synthesis modes">
-              <span class="switch-handle"></span>
-            </button>
-            <span class="toggle-option" id="mode-synth-text">Synthesizer</span>
+      <h1>Studio Soundboard</h1>
+      
+      <!-- Dashboard / Master Controls -->
+      <div class="master-dashboard">
+        <!-- Bank Selector -->
+        <div class="control-box">
+          <span class="box-label">Bank Select</span>
+          <div class="bank-selector">
+            <button class="bank-btn active" id="bank-a" data-bank="A" aria-label="Select Bank A">Bank A</button>
+            <button class="bank-btn" id="bank-b" data-bank="B" aria-label="Select Bank B">Bank B</button>
+            <button class="bank-btn" id="bank-c" data-bank="C" aria-label="Select Bank C">Bank C</button>
           </div>
         </div>
 
-        <!-- Global Volume -->
-        <div class="control-group">
-          <label class="control-label" for="global-volume">Global Volume</label>
-          <div class="volume-slider-wrapper">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>
-            </svg>
-            <input type="range" id="global-volume" min="0" max="1" step="0.05" value="0.8" aria-label="Global Volume Slider">
+        <!-- Master Volume -->
+        <div class="control-box">
+          <label class="box-label" for="global-volume">Master Volume</label>
+          <div class="volume-container">
+            <input type="range" id="global-volume" min="0" max="1" step="0.05" value="0.8" aria-label="Master Volume Slider">
             <span class="volume-badge" id="global-volume-value">80%</span>
           </div>
+        </div>
+
+        <!-- Master Actions -->
+        <div class="control-box actions-box">
+          <button id="btn-stop-all" class="dashboard-btn stop-all-btn" aria-label="Stop all playing sounds">Stop All</button>
+          <button id="btn-clear-custom" class="dashboard-btn clear-btn" aria-label="Clear all custom uploaded sounds">Reset Board</button>
         </div>
       </div>
     </header>
 
     <!-- Visualizer Canvas -->
-    <section class="visualizer-section glass-panel" aria-label="Audio Waveform Visualizer">
+    <section class="visualizer-section" aria-label="Audio Visualizer">
       <div class="visualizer-header">
-        <h2>Live Waveform</h2>
+        <h2>Output Signal</h2>
         <div class="visualizer-modes">
-          <button id="viz-mode-wave" class="viz-btn active" aria-label="Show Waveform View">Waveform</button>
-          <button id="viz-mode-freq" class="viz-btn" aria-label="Show Frequency Spectrum View">Frequency</button>
+          <button id="viz-mode-wave" class="viz-btn active" aria-label="Show Waveform">Waveform</button>
+          <button id="viz-mode-freq" class="viz-btn" aria-label="Show Frequency">Frequency</button>
         </div>
       </div>
       <div class="canvas-container">
@@ -86,132 +64,115 @@
       </div>
     </section>
 
-    <!-- Sound Board Grid -->
-    <main class="soundboard-grid" aria-label="Soundboard Pads">
-      <!-- Air Horn -->
-      <article class="sound-card pad-airhorn glass-panel" data-sound="airhorn">
-        <div class="card-glow"></div>
-        <div class="card-header">
-          <span class="hotkey-badge" aria-label="Keyboard Shortcut: 1 or Q">1</span>
-          <button class="loop-toggle" id="loop-airhorn" aria-label="Toggle loop for Air Horn" aria-pressed="false">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-            </svg>
-          </button>
-        </div>
-        
-        <button type="button" class="pad-trigger" id="btn-airhorn" aria-label="Play Air Horn">
-          <span class="emoji" role="img" aria-label="Air Horn Emoji">📢</span>
-          <span class="sound-title">Air Horn</span>
-        </button>
-
-        <div class="card-controls">
-          <label class="visually-hidden" for="vol-airhorn">Air Horn Volume</label>
-          <input type="range" class="card-volume" id="vol-airhorn" min="0" max="1" step="0.05" value="1" aria-label="Air Horn Volume Slider">
-          <button class="stop-btn" id="stop-airhorn" aria-label="Stop Air Horn sound" disabled>
-            <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true">
-              <rect x="4" y="4" width="16" height="16" rx="2"/>
-            </svg>
-          </button>
-        </div>
-      </article>
-
-      <!-- Fart Sounds -->
-      <article class="sound-card pad-fart glass-panel" data-sound="fart">
-        <div class="card-glow"></div>
-        <div class="card-header">
-          <span class="hotkey-badge" aria-label="Keyboard Shortcut: 2 or W">2</span>
-          <button class="loop-toggle" id="loop-fart" aria-label="Toggle loop for Fart sounds" aria-pressed="false">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-            </svg>
-          </button>
-        </div>
-        
-        <button type="button" class="pad-trigger" id="btn-fart" aria-label="Play Fart Sounds">
-          <span class="emoji" role="img" aria-label="Fart Emoji">💨</span>
-          <span class="sound-title">Fart Sounds</span>
-        </button>
-
-        <div class="card-controls">
-          <label class="visually-hidden" for="vol-fart">Fart Volume</label>
-          <input type="range" class="card-volume" id="vol-fart" min="0" max="1" step="0.05" value="1" aria-label="Fart Volume Slider">
-          <button class="stop-btn" id="stop-fart" aria-label="Stop Fart sound" disabled>
-            <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true">
-              <rect x="4" y="4" width="16" height="16" rx="2"/>
-            </svg>
-          </button>
-        </div>
-      </article>
-
-      <!-- Audience Laughter -->
-      <article class="sound-card pad-laughter glass-panel" data-sound="laughter">
-        <div class="card-glow"></div>
-        <div class="card-header">
-          <span class="hotkey-badge" aria-label="Keyboard Shortcut: 3 or E">3</span>
-          <button class="loop-toggle" id="loop-laughter" aria-label="Toggle loop for Audience Laughter" aria-pressed="false">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-            </svg>
-          </button>
-        </div>
-        
-        <button type="button" class="pad-trigger" id="btn-laughter" aria-label="Play Audience Laughter">
-          <span class="emoji" role="img" aria-label="Laughter Emoji">😆</span>
-          <span class="sound-title">Audience Laughter</span>
-        </button>
-
-        <div class="card-controls">
-          <label class="visually-hidden" for="vol-laughter">Laughter Volume</label>
-          <input type="range" class="card-volume" id="vol-laughter" min="0" max="1" step="0.05" value="1" aria-label="Laughter Volume Slider">
-          <button class="stop-btn" id="stop-laughter" aria-label="Stop Laughter sound" disabled>
-            <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true">
-              <rect x="4" y="4" width="16" height="16" rx="2"/>
-            </svg>
-          </button>
-        </div>
-      </article>
-
-      <!-- Audience Applause -->
-      <article class="sound-card pad-applause glass-panel" data-sound="applause">
-        <div class="card-glow"></div>
-        <div class="card-header">
-          <span class="hotkey-badge" aria-label="Keyboard Shortcut: 4 or R">4</span>
-          <button class="loop-toggle" id="loop-applause" aria-label="Toggle loop for Audience Applause" aria-pressed="false">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-            </svg>
-          </button>
-        </div>
-        
-        <button type="button" class="pad-trigger" id="btn-applause" aria-label="Play Audience Applause">
-          <span class="emoji" role="img" aria-label="Applause Emoji">👏</span>
-          <span class="sound-title">Audience Applause</span>
-        </button>
-
-        <div class="card-controls">
-          <label class="visually-hidden" for="vol-applause">Applause Volume</label>
-          <input type="range" class="card-volume" id="vol-applause" min="0" max="1" step="0.05" value="1" aria-label="Applause Volume Slider">
-          <button class="stop-btn" id="stop-applause" aria-label="Stop Applause sound" disabled>
-            <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true">
-              <rect x="4" y="4" width="16" height="16" rx="2"/>
-            </svg>
-          </button>
-        </div>
-      </article>
+    <!-- Sound Board 4x4 Grid (Dynamically generated) -->
+    <main class="soundboard-grid" id="soundboard-grid" aria-label="Soundboard 4x4 Pad Matrix">
+      <!-- Pads generated by JS -->
     </main>
 
-    <!-- Key Shortcuts panel / instructions -->
-    <footer class="app-footer glass-panel">
-      <h3>Keyboard Controls</h3>
-      <div class="shortcuts-list">
-        <div><kbd class="key-cap">1</kbd> or <kbd class="key-cap">Q</kbd> <span>Air Horn</span></div>
-        <div><kbd class="key-cap">2</kbd> or <kbd class="key-cap">W</kbd> <span>Fart Sounds</span></div>
-        <div><kbd class="key-cap">3</kbd> or <kbd class="key-cap">E</kbd> <span>Laughter</span></div>
-        <div><kbd class="key-cap">4</kbd> or <kbd class="key-cap">R</kbd> <span>Applause</span></div>
-        <div><kbd class="key-cap">Spacebar</kbd> <span>Stop All Sounds</span></div>
+    <!-- Keyboard Shortcuts Instructions -->
+    <footer class="app-footer">
+      <h3>Keyboard Pad Matrix</h3>
+      <div class="keyboard-matrix-guide">
+        <div class="row-guide">
+          <kbd class="key-cap">1</kbd> <kbd class="key-cap">2</kbd> <kbd class="key-cap">3</kbd> <kbd class="key-cap">4</kbd>
+          <span class="row-desc">Row 1 Presets</span>
+        </div>
+        <div class="row-guide">
+          <kbd class="key-cap">Q</kbd> <kbd class="key-cap">W</kbd> <kbd class="key-cap">E</kbd> <kbd class="key-cap">R</kbd>
+          <span class="row-desc">Row 2 Presets</span>
+        </div>
+        <div class="row-guide">
+          <kbd class="key-cap">A</kbd> <kbd class="key-cap">S</kbd> <kbd class="key-cap">D</kbd> <kbd class="key-cap">F</kbd>
+          <span class="row-desc">Row 3 Presets</span>
+        </div>
+        <div class="row-guide">
+          <kbd class="key-cap">Z</kbd> <kbd class="key-cap">X</kbd> <kbd class="key-cap">C</kbd> <kbd class="key-cap">V</kbd>
+          <span class="row-desc">Row 4 Custom Slots</span>
+        </div>
+      </div>
+      <div class="footer-tip">
+        <p><strong>[TIP]</strong> Drag-and-drop an audio file directly onto any pad, or double-click a pad, to upload your own custom sound clip. Your uploads persist across page reloads!</p>
       </div>
     </footer>
+  </div>
+
+  <!-- Modal for Pad Configuration (Local Upload vs Web GitHub Sounds) -->
+  <div id="pad-config-modal" class="modal-overlay" aria-hidden="true" role="dialog" aria-labelledby="modal-title">
+    <div class="modal-card">
+      <header class="modal-header">
+        <h2 id="modal-title">Configure Pad <span id="modal-pad-num">1</span></h2>
+        <button id="modal-close-btn" class="modal-close-btn" aria-label="Close dialog">×</button>
+      </header>
+
+      <div class="modal-body">
+        <!-- Step 1: Choose Source -->
+        <div id="modal-step-choose" class="modal-step">
+          <p class="modal-instruction">Select how you want to load sound onto this pad:</p>
+          <div class="source-options">
+            <button id="btn-source-local" class="source-btn">
+              <span class="source-name">Upload Local File</span>
+              <span class="source-desc">Load Ableton clips (.alc, .asd, .als), .wav, .aiff, .flac, .mp3, etc.</span>
+            </button>
+            <button id="btn-source-web" class="source-btn">
+              <span class="source-name">Search Web & GitHub</span>
+              <span class="source-desc">Browse Discord & retro gaming sounds</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Step 2: Search GitHub Library -->
+        <div id="modal-step-search" class="modal-step hidden">
+          <button id="btn-search-back" class="search-back-btn">← Back to selection</button>
+          <div class="search-bar-modal">
+            <input type="search" id="modal-sound-search" placeholder="Search sounds (e.g. Discord, Coin, Mute)..." aria-label="Search sound effects">
+          </div>
+          <div id="modal-sound-list" class="modal-sound-list">
+            <!-- Curated sound items will be generated by JS -->
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal for Audio Trimming -->
+  <div id="audio-trimmer-modal" class="modal-overlay" aria-hidden="true" role="dialog" aria-labelledby="trimmer-title">
+    <div class="modal-card trimmer-card">
+      <header class="modal-header">
+        <h2 id="trimmer-title">Trim Audio Clip</h2>
+        <button id="trimmer-close-btn" class="modal-close-btn" aria-label="Close trimmer">×</button>
+      </header>
+
+      <div class="modal-body trimmer-body">
+        <div id="trimmer-loading-overlay" class="trimmer-loading-overlay">
+          <div class="spinner"></div>
+          <p id="trimmer-status-text">Decoding audio file...</p>
+        </div>
+
+        <div id="trimmer-content" class="trimmer-content hidden">
+          <p class="modal-instruction">Drag the slider below to select a 5-second portion to save:</p>
+          
+          <div class="waveform-container">
+            <canvas id="trimmer-waveform-canvas"></canvas>
+          </div>
+
+          <div class="trimmer-scrubber-container">
+            <input type="range" id="trimmer-range" min="0" max="100" step="0.1" value="0" aria-label="Scrub clip position">
+          </div>
+
+          <div class="trimmer-time-info">
+            <span class="time-badge" id="trimmer-start-time">Start: 0:00.0</span>
+            <span class="time-badge" id="trimmer-end-time">End: 0:05.0</span>
+            <span class="time-badge duration-badge" id="trimmer-total-duration">Total: 0:00.0</span>
+          </div>
+        </div>
+      </div>
+
+      <footer class="modal-footer trimmer-footer">
+        <button id="btn-trimmer-preview" class="dashboard-btn" style="background:#00FFFF; color:#000;" disabled>Preview Trim</button>
+        <button id="btn-trimmer-save" class="dashboard-btn" style="background:#39ff14; color:#000;" disabled>Save Clip</button>
+        <button id="btn-trimmer-cancel" class="dashboard-btn clear-btn">Cancel</button>
+      </footer>
+    </div>
   </div>
 
   <!-- JavaScript logic -->
